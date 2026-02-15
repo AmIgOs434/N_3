@@ -1,6 +1,7 @@
 """
 AI Clip Creator - УНИВЕРСАЛЬНАЯ ВЕРСИЯ
 FastAPI приложение с поддержкой уровней производительности
+ОБНОВЛЕНО: добавлены API endpoints для библиотеки видео
 """
 
 import os
@@ -17,6 +18,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, F
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # Импорт наших модулей
 from youtube import download_youtube_video, get_youtube_metadata, YouTubeAuth, YouTubeUploader
@@ -80,8 +82,13 @@ app_state = {
     "ws_clients": set(),
     "current_jobs": {},
     "settings": {},
-    "performance_level": None,  # Будет установлен автоматически или вручную
+    "performance_level": None,
 }
+
+
+# ==================== Models ====================
+class DeleteRequest(BaseModel):
+    path: str
 
 
 # ==================== WebSocket управление ====================
@@ -165,7 +172,6 @@ async def startup_event():
     """При запуске показываем информацию об окружении"""
     print_environment_info()
     
-    # Устанавливаем рекомендуемый уровень производительности
     from config import get_recommended_level
     app_state["performance_level"] = get_recommended_level()
     logger.info(f"Default performance level set to: {app_state['performance_level']}")
@@ -176,7 +182,6 @@ async def index():
     """Главная страница"""
     index_file = STATIC_DIR / "index.html"
     if not index_file.exists():
-        # Создаем базовый index.html если его нет
         return HTMLResponse(content=f"""
         <html>
         <head><title>AI Clip Creator</title></head>
@@ -353,7 +358,6 @@ async def _process_video_job(
         if not openai_key:
             await manager.send_log("ВНИМАНИЕ: OpenAI API ключ не найден", "warning")
         
-        # Получаем performance level из settings или используем глобальный
         perf_level = settings.get("performance_level")
         if perf_level is not None:
             perf_level = PerformanceLevel(int(perf_level))
@@ -379,6 +383,50 @@ async def _process_video_job(
             openai_api_key=openai_key,
             openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.proxyapi.ru/openai/v1"),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-5-nano")
+        )
+        
+        # Применяем max_segments если указан
+        max_segments = settings.get("max_segments")
+        if max_segments:
+            config.max_segments = int(max_segments)
+        
+        # АВТОНАСТРОЙКА параметров трекинга в зависимости от режима контента
+        if config.mode == VideoMode.PODCAST:
+            # Подкаст - минимальное движение камеры
+            config.max_speed_px_per_sec = 80.0
+            config.target_ema_alpha = 0.15  # Очень плавное
+            config.detect_every_n_frames = 10  # Реже проверять
+            if config.tracking_mode == TrackingMode.PERSON:
+                config.tracking_mode = TrackingMode.STATIC_CENTER  # Статичная камера
+            logger.info("📻 PODCAST mode: static camera, minimal movement")
+            
+        elif config.mode == VideoMode.STREAM:
+            # Стрим - умеренное движение
+            config.max_speed_px_per_sec = 150.0
+            config.target_ema_alpha = 0.25
+            config.detect_every_n_frames = 5
+            logger.info("📺 STREAM mode: moderate tracking")
+            
+        elif config.mode == VideoMode.TALKING_HEAD:
+            # Говорящая голова - фокус на лице
+            config.max_speed_px_per_sec = 120.0
+            config.target_ema_alpha = 0.2
+            config.detect_every_n_frames = 3
+            if config.tracking_mode == TrackingMode.PERSON:
+                config.tracking_mode = TrackingMode.FACE  # Переключаем на лицо
+            logger.info("👤 TALKING HEAD mode: face tracking")
+            
+        elif config.mode == VideoMode.DYNAMIC:
+            # Динамичный - активное движение
+            config.max_speed_px_per_sec = 260.0
+            config.target_ema_alpha = 0.35
+            config.detect_every_n_frames = 2
+            logger.info("🎬 DYNAMIC mode: active tracking")
+        
+        await manager.send_log(
+            f"Режим: {config.mode.value} | Трекинг: {config.tracking_mode.value} | "
+            f"Скорость: {config.max_speed_px_per_sec:.0f}px/s",
+            "info"
         )
         
         # 3. Обработка
@@ -411,7 +459,79 @@ async def _process_video_job(
         await manager.broadcast({"type": "job_error", "job": job})
 
 
-# YouTube API endpoints (сокращенная версия)
+# ==================== Library API ====================
+
+@app.get("/api/library/list")
+async def list_library():
+    """Получить список всех готовых видео"""
+    try:
+        videos = []
+        
+        if OUT_DIR.exists():
+            for video_file in OUT_DIR.glob("*.mp4"):
+                try:
+                    stat = video_file.stat()
+                    videos.append({
+                        "name": video_file.name,
+                        "path": str(video_file),
+                        "url": f"/out/{video_file.name}",
+                        "size": stat.st_size,
+                        "created": stat.st_ctime,
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing video {video_file}: {e}")
+        
+        # Сортировка по дате создания (новые первые)
+        videos.sort(key=lambda x: x['created'], reverse=True)
+        
+        logger.info(f"Library list: {len(videos)} videos")
+        
+        return {
+            "success": True,
+            "videos": videos,
+            "count": len(videos)
+        }
+        
+    except Exception as e:
+        logger.error(f"Library list error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "videos": []
+        }
+
+
+@app.post("/api/library/delete")
+async def delete_video(request: DeleteRequest):
+    """Удалить видео из библиотеки"""
+    try:
+        video_path = Path(request.path)
+        
+        # Проверка безопасности - файл должен быть в OUT_DIR
+        if not str(video_path).startswith(str(OUT_DIR)):
+            raise HTTPException(status_code=403, detail="Invalid path")
+        
+        if not video_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        video_path.unlink()
+        
+        logger.info(f"Deleted video: {video_path.name}")
+        
+        return {
+            "success": True,
+            "message": f"Deleted {video_path.name}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== YouTube API ====================
+
 @app.get("/api/youtube/metadata")
 async def get_youtube_meta(url: str):
     try:
@@ -430,8 +550,7 @@ if __name__ == "__main__":
     
     logger.info("Starting AI Clip Creator v3.0 (Universal)")
     
-    # Определяем порт (для Colab используем переменную окружения)
-    port = int(os.getenv("PORT", 9008))
+    port = int(os.getenv("PORT", 9016))
     
     uvicorn.run(
         "app:app",
