@@ -436,27 +436,72 @@ class VideoProcessor:
                 'ffmpeg', '-y',
                 '-i', str(input_path),
                 '-c:v', 'libx264',
-                '-preset', 'medium',  # Баланс скорости/качества
+                '-preset', 'medium',
                 '-crf', '23',
                 '-c:a', 'aac',
                 '-b:a', '128k',
                 '-movflags', '+faststart',
+                '-progress', 'pipe:1',
                 str(converted_file)
             ]
             
-            result = subprocess.run(
+            # Запускаем с прогрессом
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                encoding='utf-8',
-                errors='replace'
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
             )
             
-            if result.returncode == 0 and converted_file.exists():
+            # Получаем длительность видео
+            duration = self.video_info.duration if hasattr(self, 'video_info') else 0
+            if duration == 0:
+                # Пытаемся получить через ffprobe
+                try:
+                    probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                                '-of', 'default=noprint_wrappers=1:nokey=1', str(input_path)]
+                    probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+                    duration = float(probe_result.stdout.strip())
+                except:
+                    duration = 1476.0  # Fallback
+            
+            last_progress = 0
+            
+            while True:
+                line = process.stderr.readline()
+                if not line:
+                    break
+                
+                # Парсим прогресс
+                if 'time=' in line:
+                    try:
+                        time_str = line.split('time=')[1].split()[0]
+                        parts = time_str.split(':')
+                        if len(parts) == 3:
+                            hours = float(parts[0])
+                            minutes = float(parts[1])
+                            seconds = float(parts[2])
+                            current_time = hours * 3600 + minutes * 60 + seconds
+                            
+                            if duration > 0:
+                                progress_pct = int((current_time / duration) * 100)
+                                
+                                # Логируем каждые 10%
+                                if progress_pct > last_progress and progress_pct % 10 == 0:
+                                    logger.info(f"  🔄 Conversion: {progress_pct}% ({current_time:.0f}s / {duration:.0f}s)")
+                                    last_progress = progress_pct
+                    except:
+                        pass
+            
+            process.wait()
+            
+            if process.returncode == 0 and converted_file.exists():
                 size_mb = converted_file.stat().st_size / (1024 * 1024)
                 logger.info(f"✅ Conversion complete: {size_mb:.1f}MB")
                 return converted_file
             else:
-                logger.error(f"Conversion failed: {result.stderr}")
+                stderr = process.stderr.read() if process.stderr else "Unknown error"
+                logger.error(f"Conversion failed: {stderr[:200]}")
                 return None
                 
         except Exception as e:
