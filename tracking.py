@@ -383,3 +383,4 @@ if __name__ == "__main__":
         
         x, y = tracker.update(detection)
         print(f"Frame {i}: position=({x}, {y}), velocity=({tracker.velocity_x:.1f}, {tracker.velocity_y:.1f})")
+ 
