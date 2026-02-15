@@ -143,7 +143,7 @@ class ProcessingConfig:
     use_ai_analysis: bool = True
     openai_api_key: Optional[str] = None
     openai_base_url: str = "https://api.proxyapi.ru/openai/v1"
-    openai_model: str = "gpt-5-nano"
+    openai_model: str = "gpt-4"
     
     # Дополнительные анализы
     enable_emotion_detection: bool = False
@@ -330,7 +330,8 @@ class VideoProcessor:
         if config.performance_level is not None:
             perf_config = get_config(config.performance_level)
             config.apply_performance_preset(perf_config)
-            logger.info(f"Applied performance preset: Level {config.performance_level} ({config.performance_level.name})")
+            level_name = config.performance_level.name if hasattr(config.performance_level, 'name') else str(config.performance_level)
+            logger.info(f"Applied performance preset: Level {config.performance_level} ({level_name})")
         
         # Определяем устройство
         if config.force_cpu:
@@ -624,10 +625,70 @@ class VideoProcessor:
             return {'text': '', 'words': [], 'language': 'ru', 'segments': []}
     
     async def _detect_scenes_custom(self, progress_callback=None) -> List[float]:
-        """Детектор сцен с прогрессом"""
+        """Детектор сцен с прогрессом и GPU поддержкой"""
         logger.info("Custom scene detection...")
         
+        # Пытаемся открыть видео
         cap = cv2.VideoCapture(str(self.config.input_path))
+        
+        if not cap.isOpened():
+            logger.error("Failed to open video file for scene detection")
+            return []
+        
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        
+        if total_frames == 0 or fps == 0:
+            logger.warning("Invalid video properties, skipping scene detection")
+            cap.release()
+            return []
+        
+        # Проверяем первый кадр - если не читается, переконвертируем видео
+        ret, test_frame = cap.read()
+        cap.release()
+        
+        video_path = self.config.input_path
+        
+        if not ret:
+            logger.warning("Cannot read frames (likely AV1 codec issue), converting to H.264...")
+            if progress_callback:
+                await progress_callback("Конвертация видео в GPU-совместимый формат...", 25, 100)
+            
+            # Конвертируем в H.264
+            temp_video = self.temp_dir / f"converted_{os.getpid()}.mp4"
+            
+            convert_cmd = [
+                'ffmpeg', '-y',
+                '-i', str(self.config.input_path),
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',  # Быстрая конвертация
+                '-crf', '23',
+                '-c:a', 'copy',
+                str(temp_video)
+            ]
+            
+            try:
+                subprocess.run(
+                    convert_cmd,
+                    check=True,
+                    capture_output=True,
+                    encoding='utf-8',
+                    errors='replace'
+                )
+                logger.info(f"✓ Video converted to H.264: {temp_video}")
+                video_path = str(temp_video)
+            except Exception as e:
+                logger.error(f"Conversion failed: {e}")
+                # Продолжаем с оригинальным видео
+                video_path = self.config.input_path
+        
+        # Теперь открываем (возможно конвертированное) видео
+        cap = cv2.VideoCapture(str(video_path))
+        
+        if not cap.isOpened():
+            logger.error("Failed to open video after conversion")
+            return []
+        
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS)
         
@@ -635,53 +696,105 @@ class VideoProcessor:
         prev_frame = None
         frame_idx = 0
         threshold = 27.0
+        failed_reads = 0
+        max_failed_reads = 50
         
         start_time = time.time()
         last_progress = 0
         
         logger.info(f"Analyzing {total_frames} frames for scene changes...")
         
-        # Используем GPU для ускорения если доступен
+        # GPU ускорение для scene detection
         use_gpu_processing = self.device == 'cuda'
+        prev_frame_tensor = None
+        
         if use_gpu_processing:
             try:
                 import torch
                 logger.info("Using GPU-accelerated scene detection")
+                device_torch = torch.device('cuda')
             except:
                 use_gpu_processing = False
+                logger.info("Using CPU scene detection")
         
         while True:
             ret, frame = cap.read()
             if not ret:
-                break
+                failed_reads += 1
+                if failed_reads >= max_failed_reads:
+                    logger.warning(f"Too many failed frame reads ({failed_reads}), stopping scene detection")
+                    break
+                frame_idx += 1
+                continue
             
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            failed_reads = 0
+            
+            try:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            except Exception as e:
+                logger.warning(f"Failed to convert frame {frame_idx} to grayscale: {e}")
+                frame_idx += 1
+                continue
             
             if prev_frame is not None:
-                diff = cv2.absdiff(prev_frame, gray)
-                mean_diff = diff.mean()
-                
-                if mean_diff > threshold:
-                    timestamp = frame_idx / fps
-                    scene_changes.append(timestamp)
+                try:
+                    if use_gpu_processing:
+                        # GPU обработка через PyTorch
+                        gray_tensor = torch.from_numpy(gray).float().to(device_torch) / 255.0
+                        
+                        if prev_frame_tensor is not None:
+                            diff = torch.abs(gray_tensor - prev_frame_tensor)
+                            mean_diff = diff.mean().item()
+                            
+                            if mean_diff > (threshold / 255.0):  # Нормализованный порог
+                                timestamp = frame_idx / fps
+                                scene_changes.append(timestamp)
+                        
+                        prev_frame_tensor = gray_tensor
+                    else:
+                        # CPU обработка
+                        diff = cv2.absdiff(prev_frame, gray)
+                        mean_diff = diff.mean()
+                        
+                        if mean_diff > threshold:
+                            timestamp = frame_idx / fps
+                            scene_changes.append(timestamp)
+                        
+                        prev_frame = gray
+                except Exception as e:
+                    logger.warning(f"Error processing frame {frame_idx}: {e}")
+            else:
+                if use_gpu_processing:
+                    prev_frame_tensor = torch.from_numpy(gray).float().to(device_torch) / 255.0
+                else:
+                    prev_frame = gray
             
-            prev_frame = gray
             frame_idx += 1
             
             # Прогресс каждые 2%
-            current_progress = int((frame_idx / total_frames) * 100)
-            if current_progress > last_progress and current_progress % 2 == 0:
-                if progress_callback:
-                    await progress_callback(
-                        f"Scene detection: {current_progress}% ({len(scene_changes)} scenes found)",
-                        25 + int(current_progress * 0.15),  # 25-40%
-                        100
-                    )
-                last_progress = current_progress
+            if total_frames > 0:
+                current_progress = int((frame_idx / total_frames) * 100)
+                if current_progress > last_progress and current_progress % 2 == 0:
+                    if progress_callback:
+                        await progress_callback(
+                            f"Scene detection: {current_progress}% ({len(scene_changes)} scenes found)",
+                            25 + int(current_progress * 0.15),  # 25-40%
+                            100
+                        )
+                    last_progress = current_progress
+                    logger.info(f"  Progress: {current_progress}% - {len(scene_changes)} scenes")
         
         cap.release()
         elapsed = time.time() - start_time
         logger.info(f"✓ Scene detection complete in {elapsed:.1f}s: {len(scene_changes)} scenes")
+        
+        # Удаляем временный конвертированный файл если создавали
+        if video_path != self.config.input_path:
+            try:
+                Path(video_path).unlink()
+                logger.info("✓ Temporary converted video removed")
+            except:
+                pass
         
         return scene_changes
     
