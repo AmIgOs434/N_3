@@ -2,6 +2,7 @@
 AI Clip Creator - УНИВЕРСАЛЬНАЯ ВЕРСИЯ
 Работает в Google Colab и локально
 С системой уровней производительности (1-5)
+ИСПРАВЛЕНО: строгие лимиты 17-60 секунд, быстрый рендеринг
 """
 
 import os
@@ -118,7 +119,7 @@ class ProcessingConfig:
     # GPU настройки
     use_gpu: bool = True
     force_cpu: bool = False
-    fp16: bool = True  # Mixed precision
+    fp16: bool = True
     
     # Детекция
     detect_every_n_frames: int = 3
@@ -135,16 +136,16 @@ class ProcessingConfig:
     subtitle_font_size: int = 58
     subtitle_position: float = 0.82
     
-    # Сегментация
-    min_segment_duration: float = 17.0  # ИСПРАВЛЕНО: минимум 17 секунд
-    max_segment_duration: float = 60.0  # ИСПРАВЛЕНО: максимум 60 секунд (1 минута)
+    # Сегментация - СТРОГИЕ ЛИМИТЫ
+    min_segment_duration: float = 17.0  # ХАРДКОД: минимум 17 секунд
+    max_segment_duration: float = 60.0  # ХАРДКОД: максимум 60 секунд
     max_segments: int = 8
     
-    # AI анализ (ХАРДКОД)
+    # AI анализ
     use_ai_analysis: bool = True
-    openai_api_key: Optional[str] = "sk-Yqz5qU3hmVLtKHDnmdtctNNvmcWxiKZK"  # ХАРДКОД
+    openai_api_key: Optional[str] = "sk-Yqz5qU3hmVLtKHDnmdtctNNvmcWxiKZK"
     openai_base_url: str = "https://api.proxyapi.ru/openai/v1"
-    openai_model: str = "gpt-5-nano"  # ХАРДКОД
+    openai_model: str = "gpt-5-nano"
     
     # Дополнительные анализы
     enable_emotion_detection: bool = False
@@ -154,7 +155,7 @@ class ProcessingConfig:
     enable_scene_detection: bool = True
     
     # Пороги качества
-    min_engagement_score: float = 40.0  # Понижен для большей гибкости
+    min_engagement_score: float = 40.0
     min_hook_score: float = 30.0
     
     temp_dir: str = None
@@ -172,6 +173,7 @@ class ProcessingConfig:
         self.output_bitrate = perf_config.output_bitrate
         self.fps = perf_config.output_fps
         self.max_segments = perf_config.max_segments
+        # КРИТИЧНО: применяем строгие лимиты из конфига
         self.min_segment_duration = perf_config.min_segment_duration
         self.max_segment_duration = perf_config.max_segment_duration
         self.use_gpu = perf_config.use_gpu
@@ -200,14 +202,13 @@ def detect_device():
 
 
 def setup_temp_directories(temp_dir: str = None):
-    """Настройка временных директорий — универсально для Colab и локально"""
+    """Настройка временных директорий"""
     env = detect_environment()
     
     if temp_dir is None:
         if env['is_colab']:
             temp_dir = "/content/temp_ai_clip"
         else:
-            # Для Windows пытаемся использовать диск с максимальным свободным местом
             if sys.platform == 'win32':
                 import shutil
                 drives = []
@@ -222,7 +223,6 @@ def setup_temp_directories(temp_dir: str = None):
                             pass
                 
                 if drives:
-                    # Сортируем по свободному месту
                     drives.sort(key=lambda x: x[1], reverse=True)
                     best_drive = drives[0][0]
                     temp_dir = os.path.join(best_drive, "temp_ai_clip")
@@ -241,12 +241,10 @@ def setup_temp_directories(temp_dir: str = None):
     os.environ['TMPDIR'] = str(temp_path)
     os.environ['FFMPEG_TMPDIR'] = str(temp_path)
     
-    # Whisper cache
     whisper_cache = temp_path / "whisper_cache"
     whisper_cache.mkdir(exist_ok=True)
     os.environ['XDG_CACHE_HOME'] = str(whisper_cache)
     
-    # Дополнительно для Windows - HuggingFace и Torch кеш
     if sys.platform == 'win32':
         os.environ['HF_HOME'] = str(temp_path / "huggingface")
         os.environ['TORCH_HOME'] = str(temp_path / "torch")
@@ -364,6 +362,9 @@ class VideoProcessor:
             level_name = config.performance_level.name if hasattr(config.performance_level, 'name') else str(config.performance_level)
             logger.info(f"Applied performance preset: Level {config.performance_level} ({level_name})")
         
+        # ПРОВЕРКА ЛИМИТОВ
+        logger.info(f"⚠️  SEGMENT LIMITS: min={config.min_segment_duration}s, max={config.max_segment_duration}s")
+        
         # Определяем устройство
         if config.force_cpu:
             self.device = 'cpu'
@@ -387,25 +388,17 @@ class VideoProcessor:
         if not Path(config.input_path).exists():
             raise FileNotFoundError(f"Input video not found: {config.input_path}")
         
-        # АВТОКОНВЕРТАЦИЯ AV1 → H.264 ДЛЯ СОВМЕСТИМОСТИ
-        logger.info("Checking video codec compatibility...")
-        test_cap = cv2.VideoCapture(str(config.input_path))
-        can_read = False
-        if test_cap.isOpened():
-            ret, _ = test_cap.read()
-            can_read = ret
-        test_cap.release()
+        # Быстрая проверка кодека без зависания
+        logger.info("Quick codec compatibility check...")
+        self.video_compatible = self._quick_codec_check(config.input_path)
         
-        if not can_read:
-            logger.warning("🔄 Video codec incompatible (likely AV1/VP9), converting to H.264...")
-            converted_video = self._convert_to_h264(config.input_path)
-            if converted_video:
-                logger.info(f"✅ Video converted, using: {converted_video}")
-                config.input_path = str(converted_video)
-            else:
-                logger.warning("⚠️ Conversion failed, proceeding with original video (some features may not work)")
+        if not self.video_compatible:
+            logger.warning("⚠️  Video codec may be incompatible (AV1/VP9)")
+            logger.warning("⚠️  Visual analysis will be DISABLED")
+            config.enable_scene_detection = False
+            config.enable_visual_saliency = False
         else:
-            logger.info("✅ Video codec compatible (H.264/H.265)")
+            logger.info("✅ Video codec compatible")
         
         self.video_info = VideoInfo(config.input_path)
         
@@ -423,90 +416,40 @@ class VideoProcessor:
         logger.info(f"YOLO Model: {config.yolo_model}")
         logger.info(f"Whisper Model: {config.whisper_model}")
         logger.info(f"Temp Dir: {self.temp_dir} (Free: {free_space:.2f}GB)")
+        logger.info(f"SEGMENT LIMITS: {config.min_segment_duration}-{config.max_segment_duration}s")
         logger.info("=" * 60)
     
-    def _convert_to_h264(self, input_path: str) -> Optional[Path]:
-        """Конвертация видео в H.264 для совместимости"""
+    def _quick_codec_check(self, video_path: str, timeout: int = 5) -> bool:
+        """Быстрая проверка кодека (5 секунд максимум)"""
         try:
-            converted_file = self.temp_dir / f"converted_h264_{os.getpid()}.mp4"
+            cap = cv2.VideoCapture(str(video_path))
             
-            logger.info("Starting H.264 conversion (this may take a few minutes)...")
+            if not cap.isOpened():
+                cap.release()
+                return False
             
-            cmd = [
-                'ffmpeg', '-y',
-                '-i', str(input_path),
-                '-c:v', 'libx264',
-                '-preset', 'medium',
-                '-crf', '23',
-                '-c:a', 'aac',
-                '-b:a', '128k',
-                '-movflags', '+faststart',
-                '-progress', 'pipe:1',
-                str(converted_file)
-            ]
+            # Пробуем прочитать 3 кадра с таймаутом
+            import time
+            start_time = time.time()
+            success_count = 0
             
-            # Запускаем с прогрессом
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-            
-            # Получаем длительность видео
-            duration = self.video_info.duration if hasattr(self, 'video_info') else 0
-            if duration == 0:
-                # Пытаемся получить через ffprobe
-                try:
-                    probe_cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                                '-of', 'default=noprint_wrappers=1:nokey=1', str(input_path)]
-                    probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
-                    duration = float(probe_result.stdout.strip())
-                except:
-                    duration = 1476.0  # Fallback
-            
-            last_progress = 0
-            
-            while True:
-                line = process.stderr.readline()
-                if not line:
+            for i in range(3):
+                if time.time() - start_time > timeout:
+                    logger.warning("Codec check timeout")
                     break
                 
-                # Парсим прогресс
-                if 'time=' in line:
-                    try:
-                        time_str = line.split('time=')[1].split()[0]
-                        parts = time_str.split(':')
-                        if len(parts) == 3:
-                            hours = float(parts[0])
-                            minutes = float(parts[1])
-                            seconds = float(parts[2])
-                            current_time = hours * 3600 + minutes * 60 + seconds
-                            
-                            if duration > 0:
-                                progress_pct = int((current_time / duration) * 100)
-                                
-                                # Логируем каждые 10%
-                                if progress_pct > last_progress and progress_pct % 10 == 0:
-                                    logger.info(f"  🔄 Conversion: {progress_pct}% ({current_time:.0f}s / {duration:.0f}s)")
-                                    last_progress = progress_pct
-                    except:
-                        pass
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    success_count += 1
             
-            process.wait()
+            cap.release()
             
-            if process.returncode == 0 and converted_file.exists():
-                size_mb = converted_file.stat().st_size / (1024 * 1024)
-                logger.info(f"✅ Conversion complete: {size_mb:.1f}MB")
-                return converted_file
-            else:
-                stderr = process.stderr.read() if process.stderr else "Unknown error"
-                logger.error(f"Conversion failed: {stderr[:200]}")
-                return None
-                
+            # Если хотя бы 2 из 3 кадров прочитались - кодек OK
+            return success_count >= 2
+            
         except Exception as e:
-            logger.error(f"Conversion error: {e}")
-            return None
+            logger.error(f"Codec check error: {e}")
+            return False
     
     def _init_detectors(self):
         """Инициализация детекторов"""
@@ -552,13 +495,37 @@ class VideoProcessor:
             
             if not segments:
                 logger.warning("No segments found with current settings")
-                # Fallback: создаем базовую сегментацию
                 segments = self._simple_segmentation()
                 
                 if not segments:
                     raise RuntimeError("No suitable segments found")
             
             logger.info(f"Selected {len(segments)} segments")
+            
+            # ПРОВЕРКА ЛИМИТОВ ПЕРЕД РЕНДЕРИНГОМ
+            logger.info("\n🔍 FINAL SEGMENT VALIDATION:")
+            valid_segments = []
+            for i, seg in enumerate(segments):
+                duration = seg.duration
+                logger.info(f"  Segment {i+1}: {duration:.1f}s ({seg.start:.1f}-{seg.end:.1f})")
+                
+                if duration < self.config.min_segment_duration:
+                    logger.warning(f"    ❌ TOO SHORT (min {self.config.min_segment_duration}s) - SKIPPED")
+                elif duration > self.config.max_segment_duration:
+                    logger.warning(f"    ❌ TOO LONG (max {self.config.max_segment_duration}s) - TRIMMING")
+                    # Обрезаем до максимума
+                    seg.end = seg.start + self.config.max_segment_duration
+                    valid_segments.append(seg)
+                else:
+                    logger.info(f"    ✅ OK")
+                    valid_segments.append(seg)
+            
+            segments = valid_segments
+            
+            if not segments:
+                raise RuntimeError("No valid segments after duration check")
+            
+            logger.info(f"\n✓ {len(segments)} valid segments ready for rendering\n")
             
             # Рендер
             output_files = []
@@ -576,7 +543,7 @@ class VideoProcessor:
                 logger.info(f"\n{'='*60}")
                 logger.info(f"Processing segment {i+1}/{total_segments}")
                 logger.info(f"Title: {segment.title}")
-                logger.info(f"Duration: {segment.duration:.1f}s")
+                logger.info(f"Duration: {segment.duration:.1f}s ({segment.start:.1f}-{segment.end:.1f})")
                 if segment.engagement:
                     logger.info(f"Engagement: {segment.engagement}")
                 logger.info(f"{'='*60}\n")
@@ -611,14 +578,16 @@ class VideoProcessor:
         transcript = await self._transcribe(progress_callback)
         logger.info(f"✓ Transcription: {len(transcript.get('words', []))} words")
         
-        # 2. Детекция сцен (25-40%)
+        # 2. Детекция сцен (25-40%) - ТОЛЬКО если кодек совместим
         scene_changes = []
-        if self.config.enable_scene_detection:
+        if self.config.enable_scene_detection and self.video_compatible:
             if progress_callback:
                 await progress_callback("Scene detection...", 25, 100)
             
-            scene_changes = await self._detect_scenes_custom(progress_callback)
+            scene_changes = await self._detect_scenes_fast(progress_callback)
             logger.info(f"✓ Scene detection: {len(scene_changes)} changes")
+        else:
+            logger.info("✓ Scene detection: skipped (incompatible codec)")
         
         # 3. Аудио анализ (40-55%)
         audio_data = {'times': [], 'rms': [], 'zcr': [], 'spectral_centroid': [], 'tempo': 0, 'duration': 0}
@@ -629,26 +598,16 @@ class VideoProcessor:
             audio_data = await self._analyze_audio_metrics(progress_callback)
             logger.info(f"✓ Audio analysis complete")
         
-        # 4. Визуальный анализ (55-70%)
+        # 4. Визуальный анализ - ПРОПУСКАЕМ если кодек несовместим
         visual_data = {'times': [], 'motion': [], 'faces': [], 'brightness': [], 'saturation': []}
-        if self.config.enable_visual_saliency:
+        if self.config.enable_visual_saliency and self.video_compatible:
             if progress_callback:
                 await progress_callback("Анализ визуала...", 55, 100)
             
-            # Проверяем что можем читать кадры (не AV1)
-            test_cap = cv2.VideoCapture(str(self.config.input_path))
-            can_read_frames = False
-            if test_cap.isOpened():
-                ret, _ = test_cap.read()
-                can_read_frames = ret
-            test_cap.release()
-            
-            if can_read_frames:
-                visual_data = await self._analyze_visual_metrics(progress_callback)
-                logger.info(f"✓ Visual analysis complete")
-            else:
-                logger.warning("Visual analysis skipped (incompatible codec)")
-                logger.info(f"✓ Visual analysis skipped")
+            visual_data = await self._analyze_visual_metrics(progress_callback)
+            logger.info(f"✓ Visual analysis complete")
+        else:
+            logger.info(f"✓ Visual analysis skipped")
         
         # 5. Генерация кандидатов (70-80%)
         if progress_callback:
@@ -670,7 +629,8 @@ class VideoProcessor:
             )
             logger.info(f"✓ AI scoring complete")
         else:
-            # Простой scoring без AI
+            # Простой scoring без AI, но добавляем транскрипт
+            words = transcript.get('words', [])
             for seg in scored_segments:
                 seg.engagement = EngagementScore(
                     hook_score=50.0,
@@ -680,6 +640,12 @@ class VideoProcessor:
                     pacing_score=50.0,
                     total_score=50.0
                 )
+                # Добавляем транскрипт для субтитров
+                segment_words = [
+                    w for w in words
+                    if seg.start <= w['start'] <= seg.end
+                ]
+                seg.transcript_text = " ".join(w['word'] for w in segment_words)
         
         # 7. Фильтрация (95-100%)
         if progress_callback:
@@ -691,7 +657,8 @@ class VideoProcessor:
         logger.info(f"ANALYSIS COMPLETE: {len(final_segments)} segments")
         for i, seg in enumerate(final_segments, 1):
             score_str = f"Score: {seg.engagement.total_score:.1f}" if seg.engagement else ""
-            logger.info(f"  {i}. {seg.title} {score_str}")
+            duration_str = f"{seg.duration:.1f}s"
+            logger.info(f"  {i}. {seg.title} - {duration_str} {score_str}")
         logger.info("="*60 + "\n")
         
         return final_segments
@@ -714,7 +681,6 @@ class VideoProcessor:
                 download_root=str(model_cache_dir)
             )
             
-            # Извлекаем аудио
             temp_audio = self.temp_dir / f"audio_{os.getpid()}.wav"
             
             logger.info("Extracting audio...")
@@ -748,7 +714,6 @@ class VideoProcessor:
             if temp_audio.exists():
                 temp_audio.unlink()
             
-            # Извлекаем слова
             words = []
             for segment in result.segments:
                 for word in segment.words:
@@ -770,151 +735,75 @@ class VideoProcessor:
             logger.error(f"Transcription error: {e}", exc_info=True)
             return {'text': '', 'words': [], 'language': 'ru', 'segments': []}
     
-    async def _detect_scenes_custom(self, progress_callback=None) -> List[float]:
-        """Детектор сцен с прогрессом и GPU поддержкой"""
-        logger.info("Custom scene detection...")
+    async def _detect_scenes_fast(self, progress_callback=None) -> List[float]:
+        """Быстрая детекция сцен БЕЗ зависания"""
+        logger.info("Fast scene detection (sample-based)...")
         
-        # Пытаемся открыть видео
         cap = cv2.VideoCapture(str(self.config.input_path))
         
         if not cap.isOpened():
-            logger.error("Failed to open video file for scene detection")
+            logger.error("Failed to open video")
             return []
         
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS)
         
         if total_frames == 0 or fps == 0:
-            logger.warning("Invalid video properties, skipping scene detection")
+            logger.warning("Invalid video properties")
             cap.release()
             return []
         
-        # Проверяем первые 3 кадра - если не читаются, пропускаем scene detection
-        test_failures = 0
-        for i in range(3):
-            ret, test_frame = cap.read()
-            if not ret:
-                test_failures += 1
-        
-        cap.release()
-        
-        if test_failures >= 2:
-            logger.warning(f"Cannot read video frames (codec issue: likely AV1/VP9)")
-            logger.warning("SKIPPING scene detection - will use simple segmentation")
-            logger.info("✓ Scene detection skipped (incompatible codec): 0 scenes")
-            
-            if progress_callback:
-                await progress_callback("Scene detection пропущен (несовместимый кодек)", 40, 100)
-            
-            return []
-        
-        # Если кадры читаются - продолжаем обычную детекцию
-        logger.info("Video codec compatible, proceeding with scene detection")
-        
-        cap = cv2.VideoCapture(str(self.config.input_path))
-        
-        if not cap.isOpened():
-            logger.error("Failed to open video after compatibility check")
-            return []
-        
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        
         scene_changes = []
         prev_frame = None
-        frame_idx = 0
         threshold = 27.0
-        failed_reads = 0
-        max_failed_reads = 50
         
-        start_time = time.time()
-        last_progress = 0
+        # УСКОРЕНИЕ: анализируем только каждый N-й кадр
+        sample_rate = 10  # каждый 10-й кадр
+        frame_idx = 0
+        analyzed = 0
+        max_analyze = min(500, total_frames // sample_rate)  # макс 500 проверок
         
-        logger.info(f"Analyzing {total_frames} frames for scene changes...")
+        logger.info(f"Analyzing {max_analyze} sampled frames...")
         
-        # GPU ускорение для scene detection
-        use_gpu_processing = self.device == 'cuda'
-        prev_frame_tensor = None
-        
-        if use_gpu_processing:
-            try:
-                import torch
-                logger.info("Using GPU-accelerated scene detection")
-                device_torch = torch.device('cuda')
-            except:
-                use_gpu_processing = False
-                logger.info("Using CPU scene detection")
-        
-        while True:
+        while analyzed < max_analyze:
+            # Прыгаем к следующему сэмплу
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            
             ret, frame = cap.read()
             if not ret:
-                failed_reads += 1
-                if failed_reads >= max_failed_reads:
-                    logger.warning(f"Too many failed frame reads ({failed_reads}), stopping scene detection")
-                    break
-                frame_idx += 1
-                continue
-            
-            failed_reads = 0
+                break
             
             try:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                
+                if prev_frame is not None:
+                    diff = cv2.absdiff(prev_frame, gray)
+                    mean_diff = diff.mean()
+                    
+                    if mean_diff > threshold:
+                        timestamp = frame_idx / fps
+                        scene_changes.append(timestamp)
+                
+                prev_frame = gray
+                
             except Exception as e:
-                logger.warning(f"Failed to convert frame {frame_idx} to grayscale: {e}")
-                frame_idx += 1
-                continue
+                logger.warning(f"Error at frame {frame_idx}: {e}")
             
-            if prev_frame is not None:
-                try:
-                    if use_gpu_processing:
-                        # GPU обработка через PyTorch
-                        gray_tensor = torch.from_numpy(gray).float().to(device_torch) / 255.0
-                        
-                        if prev_frame_tensor is not None:
-                            diff = torch.abs(gray_tensor - prev_frame_tensor)
-                            mean_diff = diff.mean().item()
-                            
-                            if mean_diff > (threshold / 255.0):  # Нормализованный порог
-                                timestamp = frame_idx / fps
-                                scene_changes.append(timestamp)
-                        
-                        prev_frame_tensor = gray_tensor
-                    else:
-                        # CPU обработка
-                        diff = cv2.absdiff(prev_frame, gray)
-                        mean_diff = diff.mean()
-                        
-                        if mean_diff > threshold:
-                            timestamp = frame_idx / fps
-                            scene_changes.append(timestamp)
-                        
-                        prev_frame = gray
-                except Exception as e:
-                    logger.warning(f"Error processing frame {frame_idx}: {e}")
-            else:
-                if use_gpu_processing:
-                    prev_frame_tensor = torch.from_numpy(gray).float().to(device_torch) / 255.0
-                else:
-                    prev_frame = gray
+            frame_idx += sample_rate
+            analyzed += 1
             
-            frame_idx += 1
-            
-            # Прогресс каждые 2%
-            if total_frames > 0:
-                current_progress = int((frame_idx / total_frames) * 100)
-                if current_progress > last_progress and current_progress % 2 == 0:
-                    if progress_callback:
-                        await progress_callback(
-                            f"Scene detection: {current_progress}% ({len(scene_changes)} scenes found)",
-                            25 + int(current_progress * 0.15),  # 25-40%
-                            100
-                        )
-                    last_progress = current_progress
-                    logger.info(f"  Progress: {current_progress}% - {len(scene_changes)} scenes")
+            # Прогресс каждые 10%
+            if analyzed % (max_analyze // 10) == 0:
+                if progress_callback:
+                    progress = int((analyzed / max_analyze) * 100)
+                    await progress_callback(
+                        f"Scene detection: {progress}% ({len(scene_changes)} scenes)",
+                        25 + int(progress * 0.15),
+                        100
+                    )
         
         cap.release()
-        elapsed = time.time() - start_time
-        logger.info(f"✓ Scene detection complete in {elapsed:.1f}s: {len(scene_changes)} scenes")
+        logger.info(f"✓ Fast scene detection: {len(scene_changes)} scenes")
         
         return scene_changes
     
@@ -924,7 +813,6 @@ class VideoProcessor:
         
         try:
             import librosa
-            import soundfile as sf
             
             temp_audio = self.temp_dir / f"audio_analysis_{os.getpid()}.wav"
             cmd = [
@@ -935,10 +823,7 @@ class VideoProcessor:
                 str(temp_audio)
             ]
             
-            result = subprocess.run(cmd, check=True, capture_output=True, encoding='utf-8', errors='replace')
-            
-            if not temp_audio.exists():
-                raise RuntimeError("Audio extraction failed")
+            subprocess.run(cmd, check=True, capture_output=True, encoding='utf-8', errors='replace')
             
             y, sr = librosa.load(str(temp_audio), sr=22050)
             
@@ -955,8 +840,8 @@ class VideoProcessor:
             times = librosa.frames_to_time(range(len(rms)), sr=sr)
             
             audio_data = {
-                'times': [float(t) for t in times],  # Конвертируем в обычный float
-                'rms': [float(r) for r in rms],  # Конвертируем в обычный float
+                'times': [float(t) for t in times],
+                'rms': [float(r) for r in rms],
                 'zcr': [float(z) for z in zcr],
                 'spectral_centroid': [float(s) for s in spectral_centroid],
                 'tempo': tempo,
@@ -969,16 +854,13 @@ class VideoProcessor:
             logger.info(f"✓ Audio analysis: tempo={tempo:.1f} BPM")
             return audio_data
             
-        except ImportError as e:
-            logger.warning(f"librosa not installed: {e}")
-            return {'times': [], 'rms': [], 'zcr': [], 'spectral_centroid': [], 'tempo': 0, 'duration': 0}
         except Exception as e:
             logger.warning(f"Audio analysis failed: {e}")
             return {'times': [], 'rms': [], 'zcr': [], 'spectral_centroid': [], 'tempo': 0, 'duration': 0}
     
     async def _analyze_visual_metrics(self, progress_callback=None) -> Dict[str, Any]:
-        """Анализ визуальных метрик"""
-        logger.info("Analyzing visual metrics...")
+        """Анализ визуальных метрик (быстрая версия)"""
+        logger.info("Analyzing visual metrics (sampled)...")
         
         cap = cv2.VideoCapture(str(self.config.input_path))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -993,40 +875,37 @@ class VideoProcessor:
         }
         
         prev_gray = None
-        frame_idx = 0
-        sample_rate = 30
+        sample_rate = 30  # каждый 30-й кадр
+        max_samples = min(200, total_frames // sample_rate)
         
-        while True:
+        for i in range(max_samples):
+            frame_idx = i * sample_rate
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            
             ret, frame = cap.read()
             if not ret:
                 break
             
-            if frame_idx % sample_rate == 0:
-                timestamp = frame_idx / fps
-                visual_data['times'].append(timestamp)
-                
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-                
-                if prev_gray is not None:
-                    diff = cv2.absdiff(prev_gray, gray)
-                    motion = diff.mean()
-                    visual_data['motion'].append(float(motion))
-                else:
-                    visual_data['motion'].append(0.0)
-                
-                faces = self.face_cascade.detectMultiScale(gray, 1.1, 4, minSize=(50, 50))
-                visual_data['faces'].append(len(faces))
-                
-                brightness = gray.mean()
-                visual_data['brightness'].append(float(brightness))
-                
-                saturation = hsv[:,:,1].mean()
-                visual_data['saturation'].append(float(saturation))
-                
-                prev_gray = gray
+            timestamp = frame_idx / fps
+            visual_data['times'].append(timestamp)
             
-            frame_idx += 1
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            
+            if prev_gray is not None:
+                diff = cv2.absdiff(prev_gray, gray)
+                motion = diff.mean()
+                visual_data['motion'].append(float(motion))
+            else:
+                visual_data['motion'].append(0.0)
+            
+            faces = self.face_cascade.detectMultiScale(gray, 1.1, 4, minSize=(50, 50))
+            visual_data['faces'].append(len(faces))
+            
+            visual_data['brightness'].append(float(gray.mean()))
+            visual_data['saturation'].append(float(hsv[:,:,1].mean()))
+            
+            prev_gray = gray
         
         cap.release()
         logger.info(f"✓ Visual analysis: {len(visual_data['times'])} samples")
@@ -1039,8 +918,13 @@ class VideoProcessor:
         audio_data: Dict,
         visual_data: Dict
     ) -> List[VideoSegment]:
-        """Генерация кандидатов сегментов"""
+        """Генерация кандидатов с СОБЛЮДЕНИЕМ ЛИМИТОВ"""
         logger.info("Generating candidate segments...")
+        
+        MIN_DUR = self.config.min_segment_duration
+        MAX_DUR = self.config.max_segment_duration
+        
+        logger.info(f"  Limits: {MIN_DUR}s - {MAX_DUR}s")
         
         candidates = []
         words = transcript.get('words', [])
@@ -1050,10 +934,16 @@ class VideoProcessor:
         
         # Сегменты вокруг сцен
         for i, scene_time in enumerate(scenes):
+            # Центрируем вокруг сцены, но соблюдаем лимиты
+            duration = min(MAX_DUR, 30.0)  # предпочитаем 30s если это < MAX
             start = max(0, scene_time - 5.0)
-            end = min(self.video_info.duration, scene_time + 45.0)
+            end = min(self.video_info.duration, start + duration)
             
-            if end - start >= self.config.min_segment_duration:
+            # Корректируем если вышли за MAX
+            if end - start > MAX_DUR:
+                end = start + MAX_DUR
+            
+            if end - start >= MIN_DUR:
                 candidates.append(VideoSegment(
                     start=start,
                     end=end,
@@ -1067,10 +957,24 @@ class VideoProcessor:
             pause = words[i+1]['start'] - words[i]['end']
             
             if pause > 1.5:
+                # Начинаем за 10s до паузы
                 start = max(0, words[i]['end'] - 10.0)
-                end = min(self.video_info.duration, words[i+1]['start'] + 40.0)
+                # Берем 25-30 секунд или до следующей паузы
+                target_dur = min(MAX_DUR, 30.0)
+                end = min(self.video_info.duration, start + target_dur)
                 
-                if end - start >= self.config.min_segment_duration:
+                # Проверка лимитов
+                actual_dur = end - start
+                if actual_dur < MIN_DUR:
+                    # Пытаемся растянуть
+                    end = min(self.video_info.duration, start + MIN_DUR)
+                    actual_dur = end - start
+                
+                if actual_dur > MAX_DUR:
+                    end = start + MAX_DUR
+                    actual_dur = MAX_DUR
+                
+                if MIN_DUR <= actual_dur <= MAX_DUR:
                     candidates.append(VideoSegment(
                         start=start,
                         end=end,
@@ -1087,8 +991,21 @@ class VideoProcessor:
         
         candidates = self._merge_overlapping_segments(candidates)
         
-        logger.info(f"Generated {len(candidates)} candidates")
-        return candidates
+        # ФИНАЛЬНАЯ ПРОВЕРКА всех кандидатов
+        valid_candidates = []
+        for seg in candidates:
+            dur = seg.duration
+            if dur < MIN_DUR:
+                logger.debug(f"  Candidate too short: {dur:.1f}s < {MIN_DUR}s - skipped")
+            elif dur > MAX_DUR:
+                logger.debug(f"  Candidate too long: {dur:.1f}s > {MAX_DUR}s - trimming")
+                seg.end = seg.start + MAX_DUR
+                valid_candidates.append(seg)
+            else:
+                valid_candidates.append(seg)
+        
+        logger.info(f"Generated {len(valid_candidates)} valid candidates")
+        return valid_candidates
     
     def _merge_overlapping_segments(self, segments: List[VideoSegment]) -> List[VideoSegment]:
         """Объединяет перекрывающиеся сегменты"""
@@ -1102,9 +1019,15 @@ class VideoProcessor:
             last = merged[-1]
             
             if seg.start <= last.end:
+                # При объединении соблюдаем MAX лимит
+                new_end = min(
+                    max(last.end, seg.end),
+                    last.start + self.config.max_segment_duration
+                )
+                
                 merged[-1] = VideoSegment(
                     start=last.start,
-                    end=max(last.end, seg.end),
+                    end=new_end,
                     title=last.title,
                     score=max(last.score, seg.score),
                     tags=list(set(last.tags + seg.tags))
@@ -1156,21 +1079,18 @@ class VideoProcessor:
                     100
                 )
             
-            # Текст сегмента
             segment_words = [
                 w for w in words
                 if segment.start <= w['start'] <= segment.end
             ]
             segment_text = " ".join(w['word'] for w in segment_words)
             
-            # Хук
             hook_words = [
                 w for w in segment_words
                 if w['start'] - segment.start <= 3.0
             ]
             hook_text = " ".join(w['word'] for w in hook_words)
             
-            # AI анализ
             prompt = f"""Ты эксперт по вирусным видео (TikTok/YouTube Shorts).
 
 Оцени этот сегмент:
@@ -1236,7 +1156,7 @@ JSON:
                     segment.title = data.get('title', segment.title)
                     segment.tags = data.get('tags', segment.tags)
                     segment.engagement = engagement
-                    segment.transcript_text = segment_text
+                    segment.transcript_text = segment_text  # ДОБАВЛЕНО для субтитров
                     segment.hook_text = hook_text
                     
                     logger.info(f"  {i+1}. {segment.title} - {engagement.total_score:.1f}")
@@ -1251,33 +1171,45 @@ JSON:
                     pacing_score=50.0,
                     total_score=50.0
                 )
+                segment.transcript_text = segment_text  # ДОБАВЛЕНО для субтитров даже при ошибке
             
             scored_segments.append(segment)
         
         return scored_segments
     
     def _filter_and_rank_segments(self, segments: List[VideoSegment]) -> List[VideoSegment]:
-        """Фильтрация и ранжирование"""
+        """Фильтрация и ранжирование С ПРОВЕРКОЙ ДЛИТЕЛЬНОСТИ"""
         logger.info(f"Filtering {len(segments)} segments...")
+        
+        MIN_DUR = self.config.min_segment_duration
+        MAX_DUR = self.config.max_segment_duration
         
         filtered = [
             seg for seg in segments
             if seg.engagement and
                seg.engagement.total_score >= self.config.min_engagement_score and
                seg.engagement.hook_score >= self.config.min_hook_score and
-               self.config.min_segment_duration <= seg.duration <= self.config.max_segment_duration
+               MIN_DUR <= seg.duration <= MAX_DUR  # КРИТИЧНО!
         ]
         
         logger.info(f"After filter: {len(filtered)} segments")
         
-        # Если после фильтра мало сегментов - берем топ по скору без фильтров
         if len(filtered) < 2 and len(segments) > 0:
-            logger.info("Too few filtered segments, taking top segments by score")
-            filtered = sorted(
-                [s for s in segments if s.engagement],
-                key=lambda s: s.engagement.total_score,
-                reverse=True
-            )[:self.config.max_segments]
+            logger.info("Too few filtered segments, relaxing duration limits slightly")
+            # Берем сегменты с небольшим отклонением от лимитов
+            filtered = [
+                s for s in segments
+                if s.engagement and
+                   (MIN_DUR * 0.9) <= s.duration <= (MAX_DUR * 1.1)
+            ]
+            
+            if len(filtered) < 2:
+                logger.info("Still too few, taking top by score")
+                filtered = sorted(
+                    [s for s in segments if s.engagement],
+                    key=lambda s: s.engagement.total_score,
+                    reverse=True
+                )[:self.config.max_segments]
         
         ranked = sorted(filtered, key=lambda s: s.engagement.total_score if s.engagement else 0, reverse=True)
         top_segments = ranked[:self.config.max_segments]
@@ -1286,24 +1218,36 @@ JSON:
         return final
     
     def _simple_segmentation(self) -> List[VideoSegment]:
-        """Fallback равномерная нарезка"""
+        """Fallback равномерная нарезка С СОБЛЮДЕНИЕМ ЛИМИТОВ"""
         logger.info("Using simple segmentation")
+        
+        MIN_DUR = self.config.min_segment_duration
+        MAX_DUR = self.config.max_segment_duration
+        
         segments = []
         current_time = 0.0
         segment_idx = 0
         
-        segment_duration = min(
-            self.config.max_segment_duration,
-            max(self.config.min_segment_duration, self.video_info.duration / self.config.max_segments)
-        )
+        # Предпочитаемая длина - что-то посередине между MIN и MAX
+        preferred_duration = min(MAX_DUR, max(MIN_DUR, (MIN_DUR + MAX_DUR) / 2))
+        
+        logger.info(f"  Simple segmentation: {MIN_DUR}s - {MAX_DUR}s, preferred={preferred_duration:.1f}s")
         
         while current_time < self.video_info.duration and segment_idx < self.config.max_segments:
             end_time = min(
-                current_time + segment_duration,
+                current_time + preferred_duration,
                 self.video_info.duration
             )
             
-            if (end_time - current_time) >= self.config.min_segment_duration * 0.8:  # 80% минимума
+            duration = end_time - current_time
+            
+            # Проверяем лимиты
+            if duration >= MIN_DUR:
+                # Обрезаем если слишком длинный
+                if duration > MAX_DUR:
+                    end_time = current_time + MAX_DUR
+                    duration = MAX_DUR
+                
                 segments.append(VideoSegment(
                     start=current_time,
                     end=end_time,
@@ -1332,23 +1276,324 @@ JSON:
         index: int,
         progress_callback=None
     ) -> str:
-        """Обработка сегмента"""
+        """Обработка сегмента С ТРЕКИНГОМ И СУБТИТРАМИ"""
         logger.info(f"Processing segment {index+1}...")
         
         safe_title = "".join(c for c in segment.title if c.isalnum() or c in (' ', '-', '_'))[:50]
         output_filename = f"{index+1:02d}_{safe_title}_{int(segment.start)}-{int(segment.end)}.mp4"
         output_path = Path(self.config.output_dir) / output_filename
         
-        temp_segment = await self._extract_segment(segment)
-        vertical_video = await self._create_vertical(temp_segment, segment)
+        # Проверяем режим трекинга
+        if self.config.tracking_mode == TrackingMode.STATIC_CENTER:
+            # Простой центральный crop без трекинга
+            logger.info("  Static center crop...")
+            return await self._render_static_crop(segment, output_path)
         
-        vertical_video.rename(output_path)
+        # УМНЫЙ ТРЕКИНГ + СУБТИТРЫ
+        logger.info("  Smart tracking + subtitles rendering...")
         
-        logger.info(f"✓ Segment complete: {output_path.name}")
+        try:
+            # 1. Извлекаем сегмент
+            temp_segment = await self._extract_segment(segment)
+            
+            # 2. Применяем трекинг
+            if progress_callback:
+                await progress_callback(f"Трекинг объекта {index+1}...", 0, 100)
+            
+            tracked_video = await self._apply_smart_tracking(temp_segment, segment)
+            
+            # 3. Добавляем субтитры
+            if progress_callback:
+                await progress_callback(f"Добавление субтитров {index+1}...", 50, 100)
+            
+            final_video = await self._add_subtitles(tracked_video, segment)
+            
+            # 4. Перемещаем в output
+            final_video.rename(output_path)
+            
+            # Очистка
+            if temp_segment.exists():
+                temp_segment.unlink()
+            
+            logger.info(f"✓ Segment complete: {output_path.name}")
+            return str(output_path)
+            
+        except Exception as e:
+            logger.error(f"Segment processing error: {e}", exc_info=True)
+            # Fallback: простой crop
+            logger.warning("Falling back to simple crop...")
+            return await self._render_static_crop(segment, output_path)
+    
+    async def _render_static_crop(self, segment: VideoSegment, output_path: Path) -> str:
+        """Простой статичный crop по центру"""
+        cmd = [
+            'ffmpeg', '-y',
+            '-ss', str(segment.start),
+            '-t', str(segment.duration),
+            '-i', str(self.config.input_path),
+            '-vf', f'crop={self.config.output_width}:{self.config.output_height}',
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-b:v', self.config.output_bitrate,
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            str(output_path)
+        ]
+        
+        subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=300
+        )
+        
         return str(output_path)
     
+    async def _apply_smart_tracking(self, video_path: Path, segment: VideoSegment) -> Path:
+        """Применить умный трекинг к видео"""
+        output_path = self.temp_dir / f"tracked_{os.getpid()}_{int(segment.start)}.mp4"
+        
+        # Загружаем YOLO если не загружена
+        self._load_yolo()
+        
+        cap = cv2.VideoCapture(str(video_path))
+        
+        if not cap.isOpened():
+            logger.warning("Cannot open video for tracking, using simple crop")
+            video_path.rename(output_path)
+            return output_path
+        
+        # Параметры видео
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        # Инициализация трекера
+        from tracking import SmoothTracker, HaarFaceDetector
+        
+        tracker = SmoothTracker(
+            frame_width=width,
+            frame_height=height,
+            target_width=self.config.output_width,
+            target_height=self.config.output_height,
+            max_speed=self.config.max_speed_px_per_sec,
+            ema_alpha=self.config.target_ema_alpha
+        )
+        
+        # Детектор
+        detector = None
+        if self.yolo_model and self.config.tracking_mode == TrackingMode.PERSON:
+            # Используем уже загруженную YOLO модель
+            detector = self.yolo_model
+            use_yolo = True
+            logger.info("Using YOLO person detector")
+        else:
+            detector = HaarFaceDetector()
+            use_yolo = False
+            logger.info("Using Haar face detector")
+        
+        # Подготовка writer
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(
+            str(output_path),
+            fourcc,
+            fps,
+            (self.config.output_width, self.config.output_height)
+        )
+        
+        frame_idx = 0
+        
+        logger.info(f"Processing {total_frames} frames with tracking...")
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # Детекция каждый N-й кадр
+            detection = None
+            if frame_idx % self.config.detect_every_n_frames == 0:
+                try:
+                    if use_yolo:
+                        # YOLO детекция
+                        results = detector(frame, verbose=False, classes=[0])  # class 0 = person
+                        
+                        if len(results) > 0 and len(results[0].boxes) > 0:
+                            boxes = results[0].boxes
+                            best_result = None
+                            best_score = 0
+                            
+                            for box in boxes:
+                                conf = float(box.conf[0])
+                                if conf < self.config.yolo_confidence:
+                                    continue
+                                
+                                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                width_box = x2 - x1
+                                height_box = y2 - y1
+                                area = width_box * height_box
+                                
+                                score = conf * np.sqrt(area)
+                                
+                                if score > best_score:
+                                    best_score = score
+                                    center_x = int((x1 + x2) / 2)
+                                    center_y = int((y1 + y2) / 2)
+                                    
+                                    from tracking import TrackingResult
+                                    detection = TrackingResult(
+                                        bbox=(int(x1), int(y1), int(width_box), int(height_box)),
+                                        confidence=conf,
+                                        center=(center_x, center_y),
+                                        area=area
+                                    )
+                    else:
+                        # Haar детекция
+                        detection = detector.detect(frame)
+                        
+                except Exception as e:
+                    logger.debug(f"Detection error at frame {frame_idx}: {e}")
+            
+            # Обновить позицию трекера
+            center_x, center_y = tracker.update(detection, fps)
+            
+            # Получить bbox для кропа
+            x1, y1, x2, y2 = tracker.get_crop_bbox()
+            
+            # Crop кадра
+            cropped = frame[y1:y2, x1:x2]
+            
+            # Resize если нужно (на случай краев)
+            if cropped.shape[:2] != (self.config.output_height, self.config.output_width):
+                cropped = cv2.resize(
+                    cropped,
+                    (self.config.output_width, self.config.output_height)
+                )
+            
+            writer.write(cropped)
+            frame_idx += 1
+            
+            # Прогресс каждые 5%
+            if frame_idx % (max(1, total_frames // 20)) == 0:
+                progress = int((frame_idx / total_frames) * 100)
+                logger.debug(f"  Tracking progress: {progress}%")
+        
+        cap.release()
+        writer.release()
+        
+        # Добавляем аудио обратно
+        output_with_audio = self.temp_dir / f"tracked_audio_{os.getpid()}_{int(segment.start)}.mp4"
+        
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', str(output_path),
+            '-i', str(video_path),
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-map', '0:v:0',
+            '-map', '1:a:0?',
+            '-shortest',
+            str(output_with_audio)
+        ]
+        
+        subprocess.run(cmd, check=True, capture_output=True, encoding='utf-8', errors='replace')
+        
+        # Cleanup
+        if output_path.exists():
+            output_path.unlink()
+        if video_path.exists():
+            video_path.unlink()
+        
+        logger.info("✓ Smart tracking applied")
+        return output_with_audio
+    
+    async def _add_subtitles(self, video_path: Path, segment: VideoSegment) -> Path:
+        """Добавить субтитры к видео"""
+        output_path = self.temp_dir / f"subtitled_{os.getpid()}_{int(segment.start)}.mp4"
+        
+        # Если нет транскрипта - возвращаем как есть
+        if not hasattr(segment, 'transcript_text') or not segment.transcript_text:
+            logger.info("No transcript, skipping subtitles")
+            video_path.rename(output_path)
+            return output_path
+        
+        try:
+            # Создаем SRT файл
+            srt_path = self.temp_dir / f"subs_{os.getpid()}_{int(segment.start)}.srt"
+            
+            # Получаем слова для этого сегмента из транскрипции
+            # (в реальности нужен доступ к полной транскрипции, используем текст)
+            
+            # Простая временная разметка (равномерно распределяем слова)
+            words = segment.transcript_text.split()
+            if not words:
+                logger.info("No words in transcript, skipping subtitles")
+                video_path.rename(output_path)
+                return output_path
+            
+            duration = segment.duration
+            time_per_word = duration / len(words)
+            
+            with open(srt_path, 'w', encoding='utf-8') as f:
+                # Группируем по 3-5 слов на субтитр
+                words_per_group = 4
+                for i in range(0, len(words), words_per_group):
+                    group = words[i:i+words_per_group]
+                    start_time = i * time_per_word
+                    end_time = min((i + len(group)) * time_per_word, duration)
+                    
+                    f.write(f"{i//words_per_group + 1}\n")
+                    f.write(f"{self._format_srt_time(start_time)} --> {self._format_srt_time(end_time)}\n")
+                    f.write(f"{' '.join(group)}\n\n")
+            
+            # Применяем субтитры через ffmpeg
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', str(video_path),
+                '-vf', (
+                    f"subtitles={str(srt_path)}:"
+                    f"force_style='FontName=Arial,FontSize={self.config.subtitle_font_size},"
+                    f"PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,"
+                    f"Alignment=2,MarginV={int(self.config.output_height * (1 - self.config.subtitle_position))}'"
+                ),
+                '-c:a', 'copy',
+                str(output_path)
+            ]
+            
+            subprocess.run(cmd, check=True, capture_output=True, encoding='utf-8', errors='replace')
+            
+            # Cleanup
+            if srt_path.exists():
+                srt_path.unlink()
+            if video_path.exists():
+                video_path.unlink()
+            
+            logger.info("✓ Subtitles added")
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Subtitle error: {e}")
+            # Fallback: без субтитров
+            if not output_path.exists():
+                video_path.rename(output_path)
+            return output_path
+    
+    @staticmethod
+    def _format_srt_time(seconds: float) -> str:
+        """Форматировать время для SRT (HH:MM:SS,mmm)"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+    
     async def _extract_segment(self, segment: VideoSegment) -> Path:
-        """Извлечение сегмента"""
+        """Извлечение сегмента (УСТАРЕЛО - используем прямой рендеринг)"""
         temp_file = self.temp_dir / f"segment_{os.getpid()}_{int(segment.start)}.mp4"
         
         cmd = [
@@ -1368,7 +1613,7 @@ JSON:
         return temp_file
     
     async def _create_vertical(self, input_path: Path, segment: VideoSegment) -> Path:
-        """Вертикальное видео"""
+        """Вертикальное видео (УСТАРЕЛО - используем прямой рендеринг)"""
         output_path = self.temp_dir / f"vertical_{os.getpid()}_{int(segment.start)}.mp4"
         
         cmd = [
@@ -1385,7 +1630,6 @@ JSON:
         
         subprocess.run(cmd, check=True, capture_output=True, encoding='utf-8', errors='replace')
         
-        # Удаляем временный файл
         if input_path.exists():
             input_path.unlink()
         
