@@ -188,6 +188,7 @@
             border-radius: 12px;
             aspect-ratio: 9/16;
             background: var(--bg-card);
+            cursor: pointer;
         }
         
         .video-thumb:hover .video-overlay {
@@ -199,7 +200,8 @@
             inset: 0;
             background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 50%);
             display: flex;
-            align-items: flex-end;
+            flex-direction: column;
+            justify-content: flex-end;
             padding: 16px;
             opacity: 0;
             transition: opacity 0.3s ease;
@@ -296,6 +298,27 @@
             max-height: 80vh;
             overflow-y: auto;
         }
+        
+        /* Video player */
+        .video-player {
+            width: 100%;
+            border-radius: 12px;
+            background: #000;
+        }
+
+        /* Account card */
+        .account-card {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .account-card:hover {
+            border-color: var(--primary);
+            transform: translateX(4px);
+        }
     </style>
 </head>
 <body>
@@ -307,15 +330,12 @@
                     <div class="text-3xl font-bold gradient-text">
                         AI Clip Creator
                     </div>
-                    <div class="badge badge-primary">v2.0</div>
+                    <div class="badge badge-primary">v3.0</div>
                 </div>
                 
                 <nav class="flex items-center gap-2">
                     <button class="tab active" data-tab="generate">
                         <span>🎬</span> Генерация
-                    </button>
-                    <button class="tab" data-tab="editor">
-                        <span>✂️</span> Редактор
                     </button>
                     <button class="tab" data-tab="library">
                         <span>📚</span> Библиотека
@@ -392,35 +412,43 @@
                             <div>
                                 <label class="block text-sm text-gray-400 mb-2">Режим контента</label>
                                 <select id="content-mode" class="input">
-                                    <option value="dynamic">Динамичный</option>
-                                    <option value="podcast">Подкаст</option>
-                                    <option value="stream">Стрим</option>
-                                    <option value="talking_head">Говорящая голова</option>
+                                    <option value="DYNAMIC">Динамичный</option>
+                                    <option value="PODCAST">Подкаст</option>
+                                    <option value="STREAM">Стрим</option>
+                                    <option value="TALKING_HEAD">Говорящая голова</option>
                                 </select>
                             </div>
                             
                             <div>
                                 <label class="block text-sm text-gray-400 mb-2">Трекинг камеры</label>
                                 <select id="tracking-mode" class="input">
-                                    <option value="person">Умный (человек)</option>
-                                    <option value="face">Лицо</option>
-                                    <option value="speaker">Говорящий</option>
-                                    <option value="static_center">Статичный центр</option>
+                                    <option value="PERSON">Умный (человек)</option>
+                                    <option value="FACE">Лицо</option>
+                                    <option value="STATIC_CENTER">Статичный центр</option>
                                 </select>
                             </div>
                             
                             <div>
                                 <label class="block text-sm text-gray-400 mb-2">
-                                    Количество клипов: <span id="clip-count-label">5</span>
+                                    Количество клипов: <span id="clip-count-label">8</span>
                                 </label>
                                 <input 
                                     type="range" 
                                     id="clip-count" 
                                     min="1" 
-                                    max="10" 
-                                    value="5"
+                                    max="15" 
+                                    value="8"
                                     class="w-full"
                                 />
+                            </div>
+
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Язык субтитров</label>
+                                <select id="whisper-language" class="input">
+                                    <option value="ru" selected>Русский</option>
+                                    <option value="en">English</option>
+                                    <option value="auto">Автоопределение</option>
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -463,7 +491,7 @@
                             id="log-console" 
                             class="bg-black/50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-xs scrollbar-hide"
                         >
-                            <div class="text-green-400">> AI Clip Creator v2.0</div>
+                            <div class="text-green-400">> AI Clip Creator v3.0</div>
                             <div class="text-gray-500">> Готов к работе</div>
                         </div>
                     </div>
@@ -478,22 +506,13 @@
                             <span id="clips-count" class="text-sm text-gray-400">0</span>
                         </div>
                         
-                        <div id="generated-clips" class="space-y-3">
+                        <div id="generated-clips" class="space-y-4 max-h-[600px] overflow-y-auto scrollbar-hide">
                             <div class="text-center py-8 text-gray-500">
                                 Клипы появятся здесь
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <!-- Editor Tab -->
-        <div id="tab-editor" class="tab-content hidden">
-            <div class="text-center py-12 text-gray-500">
-                <div class="text-6xl mb-4">✂️</div>
-                <h2 class="text-2xl font-bold mb-2">Редактор видео</h2>
-                <p>В разработке - появится в следующей версии</p>
             </div>
         </div>
         
@@ -513,7 +532,7 @@
             </div>
         </div>
         
-        <!-- YouTube Tab (НОВОЕ!) -->
+        <!-- YouTube Tab -->
         <div id="tab-youtube" class="tab-content hidden">
             <div class="grid lg:grid-cols-2 gap-6">
                 <!-- YouTube Accounts -->
@@ -532,13 +551,13 @@
                     </div>
                 </div>
                 
-                <!-- Upload Queue -->
+                <!-- Upload Queue / Recent Uploads -->
                 <div class="card p-6 space-y-4">
-                    <h2 class="text-2xl font-bold">📤 Очередь загрузки</h2>
+                    <h2 class="text-2xl font-bold">📤 Недавние загрузки</h2>
                     
                     <div id="upload-queue" class="space-y-3">
                         <div class="text-center py-8 text-gray-500">
-                            Очередь пуста
+                            Нет недавних загрузок
                         </div>
                     </div>
                 </div>
@@ -550,37 +569,6 @@
             <div class="grid lg:grid-cols-2 gap-6">
                 <div class="card p-6 space-y-4">
                     <h2 class="text-2xl font-bold">⚙️ Настройки обработки</h2>
-                    
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm text-gray-400 mb-2">OpenAI API Key</label>
-                            <input type="password" class="input" placeholder="sk-..."/>
-                        </div>
-                        
-                        <div>
-                            <label class="block text-sm text-gray-400 mb-2">Модель Whisper</label>
-                            <select class="input">
-                                <option>tiny</option>
-                                <option>base</option>
-                                <option selected>small</option>
-                                <option>medium</option>
-                                <option>large</option>
-                            </select>
-                        </div>
-                        
-                        <div>
-                            <label class="block text-sm text-gray-400 mb-2">Язык субтитров</label>
-                            <select class="input">
-                                <option value="ru" selected>Русский</option>
-                                <option value="en">English</option>
-                                <option value="auto">Автоопределение</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card p-6 space-y-4">
-                    <h2 class="text-2xl font-bold">🎨 Настройки субтитров</h2>
                     
                     <div class="space-y-4">
                         <div>
@@ -598,11 +586,6 @@
                         </div>
                         
                         <div>
-                            <label class="block text-sm text-gray-400 mb-2">Цвет подсветки</label>
-                            <input type="color" value="#FFD700" class="input h-12"/>
-                        </div>
-                        
-                        <div>
                             <label class="block text-sm text-gray-400 mb-2">
                                 Позиция субтитров: <span id="subtitle-position-label">82</span>%
                             </label>
@@ -615,6 +598,56 @@
                                 class="w-full"
                             />
                         </div>
+
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Минимальная длительность клипа (сек)</label>
+                            <input 
+                                type="number" 
+                                id="min-duration" 
+                                value="17" 
+                                min="10" 
+                                max="30" 
+                                class="input"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Максимальная длительность клипа (сек)</label>
+                            <input 
+                                type="number" 
+                                id="max-duration" 
+                                value="60" 
+                                min="30" 
+                                max="120" 
+                                class="input"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">OpenAI API Key (для AI анализа)</label>
+                            <input type="password" id="openai-key" class="input" placeholder="sk-..." />
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card p-6 space-y-4">
+                    <h2 class="text-2xl font-bold">🎨 Дополнительно</h2>
+                    
+                    <div class="space-y-4">
+                        <div class="flex items-center gap-3">
+                            <input type="checkbox" id="enable-ai" class="w-5 h-5" checked />
+                            <label for="enable-ai">Использовать AI анализ</label>
+                        </div>
+                        
+                        <div class="flex items-center gap-3">
+                            <input type="checkbox" id="enable-gpu" class="w-5 h-5" checked />
+                            <label for="enable-gpu">Использовать GPU (если доступен)</label>
+                        </div>
+                        
+                        <div class="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 text-sm">
+                            <p class="font-bold text-yellow-500 mb-2">ℹ️ Информация</p>
+                            <p class="text-gray-300">Для загрузки на YouTube требуется OAuth авторизация. Добавьте аккаунт на вкладке YouTube.</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -626,7 +659,7 @@
         <div id="toast-message"></div>
     </div>
 
-    <!-- YouTube Upload Modal (НОВОЕ!) -->
+    <!-- YouTube Upload Modal -->
     <div id="youtube-upload-modal" class="modal">
         <div class="modal-content">
             <div class="flex items-center justify-between mb-6">
@@ -636,6 +669,7 @@
             
             <div class="space-y-4">
                 <input type="hidden" id="upload-video-path" />
+                <input type="hidden" id="upload-video-filename" />
                 
                 <div>
                     <label class="block text-sm text-gray-400 mb-2">Аккаунт YouTube</label>
@@ -680,7 +714,7 @@
         </div>
     </div>
 
-    <!-- Add Account Modal (НОВОЕ!) -->
+    <!-- Add Account Modal -->
     <div id="add-account-modal" class="modal">
         <div class="modal-content">
             <div class="flex items-center justify-between mb-6">
@@ -726,13 +760,37 @@
         </div>
     </div>
 
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal">
+        <div class="modal-content">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold">🗑️ Удалить видео</h2>
+                <button onclick="closeDeleteModal()" class="text-gray-400 hover:text-white text-2xl">×</button>
+            </div>
+            
+            <p class="mb-6">Вы уверены, что хотите удалить это видео?</p>
+            
+            <div class="flex gap-3">
+                <button onclick="closeDeleteModal()" class="btn btn-outline flex-1">
+                    Отмена
+                </button>
+                <button onclick="confirmDelete()" class="btn btn-danger flex-1">
+                    Удалить
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // WebSocket connection
         let ws = null;
         let reconnectInterval = null;
+        let currentJobId = null;
+        let pendingDelete = null;
         
         function connectWebSocket() {
-            ws = new WebSocket(`ws://${window.location.host}/ws`);
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
             
             ws.onopen = () => {
                 console.log('WebSocket connected');
@@ -769,6 +827,10 @@
                     updateProgress(data.current, data.total, data.message);
                     break;
                 case 'job_created':
+                    currentJobId = data.job.id;
+                    updateJobStatus(data.job);
+                    addLog(`Job создан: ${data.job.id}`, 'info');
+                    break;
                 case 'job_updated':
                     updateJobStatus(data.job);
                     break;
@@ -777,6 +839,9 @@
                     break;
                 case 'job_error':
                     handleJobError(data.job);
+                    break;
+                case 'performance_changed':
+                    addLog(`Уровень производительности изменён на ${data.level}`, 'info');
                     break;
             }
         }
@@ -799,22 +864,32 @@
             addLog('✅ Обработка завершена!', 'success');
             showToast('Видео готовы!', 'success');
             
+            // Обновляем статус
+            document.getElementById('status-badge').textContent = 'Готов';
+            document.getElementById('status-badge').className = 'badge badge-secondary';
+            
             // Отображаем результаты
-            if (job.output_files) {
+            if (job.output_files && job.output_files.length > 0) {
                 const container = document.getElementById('generated-clips');
                 container.innerHTML = '';
                 
-                job.output_files.forEach(filePath => {
-                    const fileName = filePath.split('/').pop();
+                job.output_files.forEach((filePath, index) => {
+                    // Извлекаем имя файла из полного пути
+                    const fileName = filePath.split(/[\\/]/).pop();
+                    // Формируем URL для доступа к файлу
                     const videoUrl = `/out/${fileName}`;
                     
                     const clipCard = document.createElement('div');
                     clipCard.className = 'bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-2';
                     clipCard.innerHTML = `
-                        <div class="text-sm text-zinc-300">${fileName}</div>
-                        <video src="${videoUrl}" controls class="w-full rounded-lg"></video>
+                        <div class="text-sm font-semibold text-zinc-300 truncate" title="${fileName}">
+                            ${fileName}
+                        </div>
+                        <video src="${videoUrl}" controls class="video-player" preload="metadata">
+                            Ваш браузер не поддерживает видео тег.
+                        </video>
                         <div class="flex gap-2">
-                            <a href="${videoUrl}" download class="btn btn-outline text-xs flex-1">
+                            <a href="${videoUrl}" download class="btn btn-outline text-xs flex-1 text-center">
                                 💾 Скачать
                             </a>
                             <button onclick="showYouTubeUploadModal('${videoUrl}', '${fileName}')" class="btn btn-primary text-xs flex-1">
@@ -829,223 +904,16 @@
             }
             
             // Обновляем библиотеку
-            refreshLibrary();
+            setTimeout(refreshLibrary, 1000);
         }
         
         function handleJobError(job) {
             addLog('❌ Ошибка: ' + job.error, 'error');
             showToast('Ошибка обработки', 'error');
-        }
-        
-        // ==================== YouTube Functions (НОВОЕ!) ====================
-        
-        async function showYouTubeUploadModal(videoPath, fileName) {
-            // Загружаем список аккаунтов
-            await loadYouTubeAccounts();
             
-            // Устанавливаем значения
-            document.getElementById('upload-video-path').value = videoPath;
-            document.getElementById('upload-title').value = fileName.replace('.mp4', '').substring(0, 100);
-            
-            // Показываем модал
-            document.getElementById('youtube-upload-modal').classList.add('show');
+            document.getElementById('status-badge').textContent = 'Ошибка';
+            document.getElementById('status-badge').className = 'badge badge-primary';
         }
-        
-        function closeYouTubeModal() {
-            document.getElementById('youtube-upload-modal').classList.remove('show');
-        }
-        
-        async function loadYouTubeAccounts() {
-            try {
-                const response = await fetch('/api/youtube/accounts');
-                const data = await response.json();
-                
-                const select = document.getElementById('upload-account');
-                select.innerHTML = '';
-                
-                if (data.success && data.accounts && data.accounts.length > 0) {
-                    data.accounts.forEach(acc => {
-                        const option = document.createElement('option');
-                        option.value = acc.id;
-                        option.textContent = `${acc.title} (${acc.subscribers || 0} подписчиков)`;
-                        select.appendChild(option);
-                    });
-                } else {
-                    select.innerHTML = '<option value="">Нет аккаунтов - добавьте на вкладке YouTube</option>';
-                }
-            } catch (error) {
-                console.error('Failed to load accounts:', error);
-                showToast('Ошибка загрузки аккаунтов', 'error');
-            }
-        }
-        
-        async function uploadToYouTube() {
-            const accountId = document.getElementById('upload-account').value;
-            const videoPath = document.getElementById('upload-video-path').value;
-            const title = document.getElementById('upload-title').value;
-            const description = document.getElementById('upload-description').value;
-            const tags = document.getElementById('upload-tags').value;
-            const privacy = document.getElementById('upload-privacy').value;
-            
-            if (!accountId) {
-                showToast('Выберите аккаунт YouTube', 'error');
-                return;
-            }
-            
-            if (!title) {
-                showToast('Введите название видео', 'error');
-                return;
-            }
-            
-            try {
-                closeYouTubeModal();
-                showToast('Начинаем загрузку на YouTube...', 'info');
-                addLog('📤 Загрузка на YouTube...', 'info');
-                
-                const formData = new FormData();
-                formData.append('account_id', accountId);
-                formData.append('video_path', videoPath);
-                formData.append('title', title);
-                formData.append('description', description);
-                formData.append('tags', tags);
-                formData.append('privacy', privacy);
-                
-                const response = await fetch('/api/youtube/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showToast('✅ Видео загружено на YouTube!', 'success');
-                    addLog(`✅ YouTube: ${data.result.url}`, 'success');
-                    
-                    // Открыть видео в новой вкладке
-                    window.open(data.result.url, '_blank');
-                } else {
-                    showToast('Ошибка загрузки: ' + data.detail, 'error');
-                    addLog('❌ Ошибка загрузки на YouTube', 'error');
-                }
-            } catch (error) {
-                console.error('Upload error:', error);
-                showToast('Ошибка: ' + error.message, 'error');
-                addLog('❌ ' + error.message, 'error');
-            }
-        }
-        
-        function showAddAccountModal() {
-            document.getElementById('add-account-modal').classList.add('show');
-        }
-        
-        function closeAddAccountModal() {
-            document.getElementById('add-account-modal').classList.remove('show');
-        }
-        
-        document.getElementById('client-secret-file').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                document.getElementById('client-secret-name').textContent = file.name;
-            }
-        });
-        
-        async function addYouTubeAccount() {
-            const fileInput = document.getElementById('client-secret-file');
-            const file = fileInput.files[0];
-            const label = document.getElementById('account-label').value;
-            
-            if (!file) {
-                showToast('Выберите client_secret.json файл', 'error');
-                return;
-            }
-            
-            try {
-                // 1. Загружаем client_secret
-                const uploadForm = new FormData();
-                uploadForm.append('file', file);
-                
-                const uploadResponse = await fetch('/api/youtube/upload_client', {
-                    method: 'POST',
-                    body: uploadForm
-                });
-                
-                const uploadData = await uploadResponse.json();
-                
-                if (!uploadData.success) {
-                    throw new Error('Failed to upload client secret');
-                }
-                
-                closeAddAccountModal();
-                showToast('Запускаем OAuth авторизацию...', 'info');
-                addLog('🔐 OAuth авторизация...', 'info');
-                
-                // 2. Добавляем аккаунт (откроет браузер для OAuth)
-                const addForm = new FormData();
-                addForm.append('client_file', uploadData.filename);
-                addForm.append('label', label || '');
-                
-                const addResponse = await fetch('/api/youtube/add_account', {
-                    method: 'POST',
-                    body: addForm
-                });
-                
-                const addData = await addResponse.json();
-                
-                if (addData.success) {
-                    showToast('✅ Аккаунт добавлен: ' + addData.account.channel_title, 'success');
-                    addLog('✅ Аккаунт: ' + addData.account.channel_title, 'success');
-                    
-                    // Обновляем список аккаунтов
-                    loadYouTubeAccountsList();
-                } else {
-                    showToast('Ошибка добавления аккаунта', 'error');
-                }
-                
-            } catch (error) {
-                console.error('Add account error:', error);
-                showToast('Ошибка: ' + error.message, 'error');
-                addLog('❌ ' + error.message, 'error');
-            }
-        }
-        
-        async function loadYouTubeAccountsList() {
-            try {
-                const response = await fetch('/api/youtube/accounts');
-                const data = await response.json();
-                
-                const container = document.getElementById('youtube-accounts-list');
-                container.innerHTML = '';
-                
-                if (data.success && data.accounts && data.accounts.length > 0) {
-                    data.accounts.forEach(acc => {
-                        const card = document.createElement('div');
-                        card.className = 'bg-zinc-950 border border-zinc-800 rounded-lg p-4 flex items-center justify-between';
-                        card.innerHTML = `
-                            <div>
-                                <div class="font-bold text-white">${acc.title}</div>
-                                <div class="text-sm text-gray-400">${acc.subscribers || 0} подписчиков</div>
-                            </div>
-                            <div class="badge badge-secondary">Активен</div>
-                        `;
-                        container.appendChild(card);
-                    });
-                } else {
-                    container.innerHTML = `
-                        <div class="text-center py-8 text-gray-500">
-                            <div class="text-4xl mb-2">📺</div>
-                            <p>Нет подключенных аккаунтов</p>
-                            <button onclick="showAddAccountModal()" class="btn btn-primary mt-4">
-                                ➕ Добавить первый аккаунт
-                            </button>
-                        </div>
-                    `;
-                }
-            } catch (error) {
-                console.error('Failed to load accounts list:', error);
-            }
-        }
-        
-        // ==================== End YouTube Functions ====================
         
         // Tab switching
         document.querySelectorAll('[data-tab]').forEach(tab => {
@@ -1060,8 +928,10 @@
                 document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
                 document.getElementById(`tab-${tabName}`).classList.remove('hidden');
                 
-                // Load YouTube accounts if switching to YouTube tab
-                if (tabName === 'youtube') {
+                // Load data based on tab
+                if (tabName === 'library') {
+                    refreshLibrary();
+                } else if (tabName === 'youtube') {
                     loadYouTubeAccountsList();
                 }
             });
@@ -1071,7 +941,18 @@
         document.getElementById('video-file').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                document.getElementById('file-name').textContent = file.name;
+                document.getElementById('file-name').textContent = `Выбран: ${file.name}`;
+                // Очищаем URL поле
+                document.getElementById('youtube-url').value = '';
+            }
+        });
+
+        // YouTube URL input
+        document.getElementById('youtube-url').addEventListener('input', (e) => {
+            if (e.target.value) {
+                // Очищаем файловый input
+                document.getElementById('video-file').value = '';
+                document.getElementById('file-name').textContent = '';
             }
         });
         
@@ -1101,17 +982,30 @@
                 return;
             }
             
+            // Собираем все настройки
             const settings = {
                 content_mode: document.getElementById('content-mode').value,
                 tracking_mode: document.getElementById('tracking-mode').value,
                 max_segments: parseInt(document.getElementById('clip-count').value),
                 font_size: parseInt(document.getElementById('font-size').value),
                 subtitle_position: parseInt(document.getElementById('subtitle-position').value) / 100,
+                whisper_language: document.getElementById('whisper-language').value,
                 output_width: 1080,
-                output_height: 1920
+                output_height: 1920,
+                min_segment_duration: parseFloat(document.getElementById('min-duration').value) || 17,
+                max_segment_duration: parseFloat(document.getElementById('max-duration').value) || 60,
+                use_ai_analysis: document.getElementById('enable-ai').checked,
+                use_gpu: document.getElementById('enable-gpu').checked
             };
+
+            // Добавляем OpenAI ключ если есть
+            const openaiKey = document.getElementById('openai-key').value;
+            if (openaiKey) {
+                settings.openai_api_key = openaiKey;
+            }
             
             addLog('Начинаем обработку...', 'info');
+            addLog('Настройки: ' + JSON.stringify(settings), 'info');
             
             try {
                 let response;
@@ -1142,15 +1036,276 @@
                 
                 if (data.success) {
                     showToast('Обработка запущена!', 'success');
-                    addLog(`Job ID: ${data.job_id}`, 'success');
+                    addLog(`✅ Job ID: ${data.job_id}`, 'success');
                 } else {
                     showToast('Ошибка: ' + (data.detail || 'Unknown error'), 'error');
+                    addLog('❌ Ошибка: ' + (data.detail || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 showToast('Ошибка: ' + error.message, 'error');
-                addLog('ERROR: ' + error.message, 'error');
+                addLog('❌ Ошибка: ' + error.message, 'error');
             }
         }
+        
+        // ==================== YouTube Functions ====================
+        
+        async function showYouTubeUploadModal(videoPath, fileName) {
+            try {
+                // Загружаем список аккаунтов
+                await loadYouTubeAccountsForSelect();
+                
+                // Устанавливаем значения
+                document.getElementById('upload-video-path').value = videoPath;
+                document.getElementById('upload-video-filename').value = fileName;
+                
+                // Предзаполняем название
+                const titleBase = fileName.replace('.mp4', '').replace(/[_-]/g, ' ').substring(0, 100);
+                document.getElementById('upload-title').value = titleBase;
+                
+                // Предзаполняем описание
+                document.getElementById('upload-description').value = `#Shorts\n\nСоздано с помощью AI Clip Creator`;
+                
+                // Показываем модал
+                document.getElementById('youtube-upload-modal').classList.add('show');
+            } catch (error) {
+                console.error('Error showing upload modal:', error);
+                showToast('Ошибка загрузки аккаунтов', 'error');
+            }
+        }
+        
+        function closeYouTubeModal() {
+            document.getElementById('youtube-upload-modal').classList.remove('show');
+        }
+        
+        async function loadYouTubeAccountsForSelect() {
+            try {
+                const response = await fetch('/api/youtube/accounts');
+                const data = await response.json();
+                
+                const select = document.getElementById('upload-account');
+                select.innerHTML = '';
+                
+                if (data.success && data.accounts && data.accounts.length > 0) {
+                    data.accounts.forEach(acc => {
+                        const option = document.createElement('option');
+                        option.value = acc.id;
+                        option.textContent = `${acc.title} (${acc.subscribers || 0} подписчиков)`;
+                        select.appendChild(option);
+                    });
+                } else {
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = 'Нет аккаунтов - добавьте на вкладке YouTube';
+                    select.appendChild(option);
+                }
+            } catch (error) {
+                console.error('Failed to load accounts:', error);
+                showToast('Ошибка загрузки аккаунтов', 'error');
+            }
+        }
+        
+        async function uploadToYouTube() {
+            const accountId = document.getElementById('upload-account').value;
+            const videoPath = document.getElementById('upload-video-path').value;
+            const fileName = document.getElementById('upload-video-filename').value;
+            const title = document.getElementById('upload-title').value;
+            const description = document.getElementById('upload-description').value;
+            const tags = document.getElementById('upload-tags').value;
+            const privacy = document.getElementById('upload-privacy').value;
+            
+            if (!accountId) {
+                showToast('Выберите аккаунт YouTube', 'error');
+                return;
+            }
+            
+            if (!title) {
+                showToast('Введите название видео', 'error');
+                return;
+            }
+            
+            // Извлекаем имя файла из пути
+            const videoFileName = fileName || videoPath.split('/').pop();
+            
+            try {
+                closeYouTubeModal();
+                showToast('Начинаем загрузку на YouTube...', 'info');
+                addLog('📤 Загрузка на YouTube...', 'info');
+                
+                const formData = new FormData();
+                formData.append('account_id', accountId);
+                formData.append('video_path', videoFileName); // Отправляем только имя файла
+                formData.append('title', title);
+                formData.append('description', description);
+                formData.append('tags', tags);
+                formData.append('privacy_status', privacy);
+                
+                const response = await fetch('/api/youtube/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('✅ Видео загружено на YouTube!', 'success');
+                    addLog(`✅ YouTube: ${data.result.url}`, 'success');
+                    
+                    // Добавляем в недавние загрузки
+                    addToRecentUploads({
+                        title: title,
+                        url: data.result.url,
+                        videoId: data.result.video_id
+                    });
+                    
+                    // Открыть видео в новой вкладке
+                    window.open(data.result.url, '_blank');
+                } else {
+                    showToast('Ошибка загрузки: ' + (data.detail || 'Неизвестная ошибка'), 'error');
+                    addLog('❌ Ошибка загрузки на YouTube: ' + (data.detail || 'Неизвестная ошибка'), 'error');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showToast('Ошибка: ' + error.message, 'error');
+                addLog('❌ ' + error.message, 'error');
+            }
+        }
+        
+        function addToRecentUploads(upload) {
+            const container = document.getElementById('upload-queue');
+            
+            // Убираем заглушку если есть
+            if (container.children.length === 1 && container.children[0].classList.contains('text-center')) {
+                container.innerHTML = '';
+            }
+            
+            const uploadItem = document.createElement('div');
+            uploadItem.className = 'account-card flex items-center justify-between';
+            uploadItem.innerHTML = `
+                <div>
+                    <div class="font-semibold text-white">${upload.title}</div>
+                    <div class="text-sm text-gray-400">${new Date().toLocaleString()}</div>
+                </div>
+                <a href="${upload.url}" target="_blank" class="text-primary hover:text-primary-dark">
+                    🔗
+                </a>
+            `;
+            
+            container.insertBefore(uploadItem, container.firstChild);
+            
+            // Ограничиваем до 5 последних
+            while (container.children.length > 5) {
+                container.removeChild(container.lastChild);
+            }
+        }
+        
+        function showAddAccountModal() {
+            document.getElementById('add-account-modal').classList.add('show');
+        }
+        
+        function closeAddAccountModal() {
+            document.getElementById('add-account-modal').classList.remove('show');
+            document.getElementById('client-secret-file').value = '';
+            document.getElementById('client-secret-name').textContent = '';
+            document.getElementById('account-label').value = '';
+        }
+        
+        document.getElementById('client-secret-file').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('client-secret-name').textContent = file.name;
+            }
+        });
+        
+        async function addYouTubeAccount() {
+            const fileInput = document.getElementById('client-secret-file');
+            const file = fileInput.files[0];
+            const label = document.getElementById('account-label').value;
+            
+            if (!file) {
+                showToast('Выберите client_secret.json файл', 'error');
+                return;
+            }
+            
+            try {
+                closeAddAccountModal();
+                showToast('Запускаем OAuth авторизацию...', 'info');
+                addLog('🔐 OAuth авторизация...', 'info');
+                
+                const formData = new FormData();
+                formData.append('client_secret', file);
+                formData.append('label', label || '');
+                
+                const response = await fetch('/api/youtube/add_account', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('✅ Аккаунт добавлен: ' + data.account.channel_title, 'success');
+                    addLog('✅ Аккаунт добавлен: ' + data.account.channel_title, 'success');
+                    
+                    // Обновляем список аккаунтов
+                    loadYouTubeAccountsList();
+                } else {
+                    showToast('Ошибка добавления аккаунта', 'error');
+                    addLog('❌ Ошибка добавления аккаунта', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Add account error:', error);
+                showToast('Ошибка: ' + error.message, 'error');
+                addLog('❌ ' + error.message, 'error');
+            }
+        }
+        
+        async function loadYouTubeAccountsList() {
+            try {
+                const response = await fetch('/api/youtube/accounts');
+                const data = await response.json();
+                
+                const container = document.getElementById('youtube-accounts-list');
+                
+                if (data.success && data.accounts && data.accounts.length > 0) {
+                    container.innerHTML = '';
+                    
+                    data.accounts.forEach(acc => {
+                        const card = document.createElement('div');
+                        card.className = 'account-card flex items-center justify-between';
+                        card.innerHTML = `
+                            <div>
+                                <div class="font-bold text-white">${acc.title}</div>
+                                <div class="text-sm text-gray-400">
+                                    ${acc.subscribers || 0} подписчиков • ${acc.video_count || 0} видео
+                                </div>
+                            </div>
+                            <div class="badge badge-secondary">Активен</div>
+                        `;
+                        container.appendChild(card);
+                    });
+                } else {
+                    container.innerHTML = `
+                        <div class="text-center py-8 text-gray-500">
+                            <div class="text-4xl mb-2">📺</div>
+                            <p>Нет подключенных аккаунтов</p>
+                            <button onclick="showAddAccountModal()" class="btn btn-primary mt-4">
+                                ➕ Добавить первый аккаунт
+                            </button>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Failed to load accounts list:', error);
+                document.getElementById('youtube-accounts-list').innerHTML = `
+                    <div class="text-center py-8 text-red-400">
+                        Ошибка загрузки аккаунтов
+                    </div>
+                `;
+            }
+        }
+        
+        // ==================== End YouTube Functions ====================
         
         // Utility functions
         function addLog(message, level = 'info') {
@@ -1172,14 +1327,15 @@
         
         function clearLog() {
             document.getElementById('log-console').innerHTML = '';
+            addLog('Лог очищен', 'info');
         }
         
         function updateProgress(current, total, message) {
-            const percent = Math.round((current / total) * 100);
+            const percent = total > 0 ? Math.round((current / total) * 100) : 0;
             document.getElementById('progress-fill').style.width = `${percent}%`;
             document.getElementById('progress-percent').textContent = `${percent}%`;
-            document.getElementById('progress-label').textContent = message;
-            document.getElementById('current-step').textContent = message;
+            document.getElementById('progress-label').textContent = message || 'Обработка...';
+            document.getElementById('current-step').textContent = message || 'Обработка...';
         }
         
         function showToast(message, type = 'info') {
@@ -1194,28 +1350,38 @@
             }, 3000);
         }
         
+        // Library functions
         async function refreshLibrary() {
             try {
-                const response = await fetch('/api/library');
+                const response = await fetch('/api/library/list');
                 const data = await response.json();
                 
-                if (data.success && data.videos) {
-                    const grid = document.getElementById('library-grid');
+                const grid = document.getElementById('library-grid');
+                
+                if (data.success && data.videos && data.videos.length > 0) {
                     grid.innerHTML = '';
                     
                     data.videos.forEach(video => {
                         const card = document.createElement('div');
                         card.className = 'video-thumb';
                         card.innerHTML = `
-                            <video src="${video.url}" class="w-full h-full object-cover"></video>
+                            <video src="${video.url}" class="w-full h-full object-cover" preload="metadata"></video>
                             <div class="video-overlay">
-                                <div class="text-sm font-semibold">${video.name}</div>
+                                <div class="text-sm font-semibold truncate">${video.name}</div>
                                 <div class="text-xs text-gray-400">${formatFileSize(video.size)}</div>
+                                <div class="flex gap-2 mt-2">
+                                    <button onclick="event.stopPropagation(); playVideo('${video.url}')" class="btn btn-primary text-xs flex-1">
+                                        ▶️ Смотреть
+                                    </button>
+                                    <button onclick="event.stopPropagation(); showDeleteModal('${video.path}')" class="btn btn-danger text-xs">
+                                        🗑️
+                                    </button>
+                                </div>
                             </div>
                         `;
                         
                         card.addEventListener('click', () => {
-                            window.open(video.url, '_blank');
+                            playVideo(video.url);
                         });
                         
                         grid.appendChild(card);
@@ -1223,11 +1389,53 @@
                     
                     showToast('Библиотека обновлена', 'success');
                 } else {
-                    grid.innerHTML = '<div class="col-span-full text-center py-12 text-gray-500">Нет видео</div>';
+                    grid.innerHTML = '<div class="col-span-full text-center py-12 text-gray-500">📁 Нет видео в библиотеке</div>';
                 }
             } catch (error) {
                 console.error('Error refreshing library:', error);
                 showToast('Ошибка загрузки библиотеки', 'error');
+            }
+        }
+        
+        function playVideo(url) {
+            window.open(url, '_blank');
+        }
+        
+        // Delete functions
+        function showDeleteModal(path) {
+            pendingDelete = path;
+            document.getElementById('delete-modal').classList.add('show');
+        }
+        
+        function closeDeleteModal() {
+            document.getElementById('delete-modal').classList.remove('show');
+            pendingDelete = null;
+        }
+        
+        async function confirmDelete() {
+            if (!pendingDelete) return;
+            
+            try {
+                const response = await fetch('/api/library/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ path: pendingDelete })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Видео удалено', 'success');
+                    refreshLibrary();
+                } else {
+                    showToast('Ошибка удаления', 'error');
+                }
+            } catch (error) {
+                showToast('Ошибка: ' + error.message, 'error');
+            } finally {
+                closeDeleteModal();
             }
         }
         
@@ -1242,6 +1450,16 @@
         // Initialize
         connectWebSocket();
         addLog('Система готова к работе', 'success');
+        
+        // Load performance levels on startup
+        fetch('/api/performance/levels')
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    addLog(`Текущий уровень производительности: ${data.current}`, 'info');
+                }
+            })
+            .catch(err => console.error('Failed to load performance levels:', err));
     </script>
 </body>
 </html>
