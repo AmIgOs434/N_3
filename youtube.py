@@ -398,4 +398,4 @@ class YouTubeUploader:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    print("YouTube module ready")
+    print("YouTube module ready") 
