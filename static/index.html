@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Clip Creator - Умное создание вертикальных видео</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #10b981;
+            --accent: #f59e0b;
+            --bg-dark: #0a0a0f;
+            --bg-card: #1a1a24;
+            --text-primary: #f5f5f7;
+            --text-secondary: #a1a1aa;
+        }
+        
+        * {
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        body {
+            background: linear-gradient(135deg, var(--bg-dark) 0%, #0f0f1a 50%, var(--bg-dark) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        /* Glow effects */
+        .glow-primary {
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+        }
+        
+        .glow-secondary {
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+        
+        /* Animated gradient text */
+        .gradient-text {
+            background: linear-gradient(90deg, #6366f1, #10b981, #f59e0b);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: gradient-shift 3s ease infinite;
+        }
+        
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% center; }
+            50% { background-position: 100% center; }
+        }
+        
+        /* Card styles */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 16px;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover {
+            border-color: rgba(99, 102, 241, 0.4);
+            transform: translateY(-2px);
+        }
+        
+        /* Button styles */
+        .btn {
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+            outline: none;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, var(--secondary) 0%, #059669 100%);
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
+        }
+        
+        .btn-outline {
+            background: transparent;
+            border: 2px solid rgba(99, 102, 241, 0.5);
+            color: var(--text-primary);
+        }
+        
+        .btn-outline:hover {
+            background: rgba(99, 102, 241, 0.1);
+            border-color: var(--primary);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+        
+        /* Input styles */
+        .input {
+            background: rgba(26, 26, 36, 0.8);
+            border: 2px solid rgba(99, 102, 241, 0.2);
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: var(--text-primary);
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+        
+        .input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+        }
+        
+        /* Progress bar */
+        .progress-bar {
+            height: 8px;
+            background: rgba(99, 102, 241, 0.2);
+            border-radius: 999px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            border-radius: 999px;
+            transition: width 0.3s ease;
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { background-position: -100% 0; }
+            100% { background-position: 200% 0; }
+        }
+        
+        /* Tab styles */
+        .tab {
+            padding: 12px 24px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: transparent;
+            color: var(--text-secondary);
+        }
+        
+        .tab.active {
+            background: rgba(99, 102, 241, 0.2);
+            color: var(--primary);
+        }
+        
+        .tab:hover:not(.active) {
+            background: rgba(99, 102, 241, 0.1);
+        }
+        
+        /* Video thumbnail */
+        .video-thumb {
+            position: relative;
+            overflow: hidden;
+            border-radius: 12px;
+            aspect-ratio: 9/16;
+            background: var(--bg-card);
+        }
+        
+        .video-thumb:hover .video-overlay {
+            opacity: 1;
+        }
+        
+        .video-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 50%);
+            display: flex;
+            align-items: flex-end;
+            padding: 16px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        /* Loading animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(99, 102, 241, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Hide scrollbar but keep functionality */
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        /* Badge */
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge-primary {
+            background: rgba(99, 102, 241, 0.2);
+            color: var(--primary);
+        }
+        
+        .badge-secondary {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--secondary);
+        }
+        
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-card);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 12px;
+            padding: 16px 24px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+        
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        
+        /* Modal */
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            backdrop-filter: blur(10px);
+        }
+        
+        .modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: var(--bg-card);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="border-b border-gray-800 backdrop-blur-md sticky top-0 z-50">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <div class="text-3xl font-bold gradient-text">
+                        AI Clip Creator
+                    </div>
+                    <div class="badge badge-primary">v2.0</div>
+                </div>
+                
+                <nav class="flex items-center gap-2">
+                    <button class="tab active" data-tab="generate">
+                        <span>🎬</span> Генерация
+                    </button>
+                    <button class="tab" data-tab="editor">
+                        <span>✂️</span> Редактор
+                    </button>
+                    <button class="tab" data-tab="library">
+                        <span>📚</span> Библиотека
+                    </button>
+                    <button class="tab" data-tab="youtube">
+                        <span>📤</span> YouTube
+                    </button>
+                    <button class="tab" data-tab="settings">
+                        <span>⚙️</span> Настройки
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-6 py-8">
+        <!-- Generate Tab -->
+        <div id="tab-generate" class="tab-content">
+            <div class="grid lg:grid-cols-3 gap-6">
+                <!-- Left Column - Input -->
+                <div class="lg:col-span-1 space-y-6">
+                    <!-- Video Source -->
+                    <div class="card p-6 space-y-4">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <span class="text-2xl">📹</span> Источник видео
+                        </h2>
+                        
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">YouTube URL</label>
+                                <input 
+                                    type="text" 
+                                    id="youtube-url" 
+                                    class="input" 
+                                    placeholder="https://youtube.com/watch?v=..."
+                                />
+                            </div>
+                            
+                            <div class="text-center text-gray-500">или</div>
+                            
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Загрузить файл</label>
+                                <div class="relative">
+                                    <input 
+                                        type="file" 
+                                        id="video-file" 
+                                        accept="video/*"
+                                        class="hidden"
+                                    />
+                                    <button 
+                                        onclick="document.getElementById('video-file').click()"
+                                        class="btn btn-outline w-full"
+                                    >
+                                        Выбрать видео
+                                    </button>
+                                </div>
+                                <div id="file-name" class="mt-2 text-sm text-gray-400"></div>
+                            </div>
+                        </div>
+                        
+                        <button id="start-btn" class="btn btn-primary w-full glow-primary">
+                            🚀 Начать обработку
+                        </button>
+                    </div>
+                    
+                    <!-- Quick Settings -->
+                    <div class="card p-6 space-y-4">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <span class="text-2xl">⚡</span> Быстрые настройки
+                        </h2>
+                        
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Режим контента</label>
+                                <select id="content-mode" class="input">
+                                    <option value="dynamic">Динамичный</option>
+                                    <option value="podcast">Подкаст</option>
+                                    <option value="stream">Стрим</option>
+                                    <option value="talking_head">Говорящая голова</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Трекинг камеры</label>
+                                <select id="tracking-mode" class="input">
+                                    <option value="person">Умный (человек)</option>
+                                    <option value="face">Лицо</option>
+                                    <option value="speaker">Говорящий</option>
+                                    <option value="static_center">Статичный центр</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">
+                                    Количество клипов: <span id="clip-count-label">5</span>
+                                </label>
+                                <input 
+                                    type="range" 
+                                    id="clip-count" 
+                                    min="1" 
+                                    max="10" 
+                                    value="5"
+                                    class="w-full"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Middle Column - Progress & Preview -->
+                <div class="lg:col-span-1 space-y-6">
+                    <!-- Progress Card -->
+                    <div class="card p-6 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-xl font-bold">⏳ Прогресс</h2>
+                            <span id="status-badge" class="badge badge-secondary">Готов</span>
+                        </div>
+                        
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span id="progress-label">Ожидание...</span>
+                                <span id="progress-percent">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        
+                        <div id="current-step" class="text-sm text-gray-400">
+                            Загрузите видео для начала
+                        </div>
+                    </div>
+                    
+                    <!-- Log Console -->
+                    <div class="card p-6 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-xl font-bold">📝 Лог</h2>
+                            <button onclick="clearLog()" class="text-sm text-gray-400 hover:text-white">
+                                Очистить
+                            </button>
+                        </div>
+                        
+                        <div 
+                            id="log-console" 
+                            class="bg-black/50 rounded-lg p-4 h-64 overflow-y-auto font-mono text-xs scrollbar-hide"
+                        >
+                            <div class="text-green-400">> AI Clip Creator v2.0</div>
+                            <div class="text-gray-500">> Готов к работе</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right Column - Results -->
+                <div class="lg:col-span-1 space-y-6">
+                    <!-- Generated Clips -->
+                    <div class="card p-6 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-xl font-bold">🎥 Готовые клипы</h2>
+                            <span id="clips-count" class="text-sm text-gray-400">0</span>
+                        </div>
+                        
+                        <div id="generated-clips" class="space-y-3">
+                            <div class="text-center py-8 text-gray-500">
+                                Клипы появятся здесь
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Editor Tab -->
+        <div id="tab-editor" class="tab-content hidden">
+            <div class="text-center py-12 text-gray-500">
+                <div class="text-6xl mb-4">✂️</div>
+                <h2 class="text-2xl font-bold mb-2">Редактор видео</h2>
+                <p>В разработке - появится в следующей версии</p>
+            </div>
+        </div>
+        
+        <!-- Library Tab -->
+        <div id="tab-library" class="tab-content hidden">
+            <div class="card p-6 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-2xl font-bold">📚 Библиотека видео</h2>
+                    <button onclick="refreshLibrary()" class="btn btn-outline">
+                        🔄 Обновить
+                    </button>
+                </div>
+                
+                <div id="library-grid" class="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <!-- Videos will be loaded here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- YouTube Tab (НОВОЕ!) -->
+        <div id="tab-youtube" class="tab-content hidden">
+            <div class="grid lg:grid-cols-2 gap-6">
+                <!-- YouTube Accounts -->
+                <div class="card p-6 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-2xl font-bold">📺 YouTube Аккаунты</h2>
+                        <button onclick="showAddAccountModal()" class="btn btn-primary">
+                            ➕ Добавить
+                        </button>
+                    </div>
+                    
+                    <div id="youtube-accounts-list" class="space-y-3">
+                        <div class="text-center py-8 text-gray-500">
+                            Загрузка аккаунтов...
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Upload Queue -->
+                <div class="card p-6 space-y-4">
+                    <h2 class="text-2xl font-bold">📤 Очередь загрузки</h2>
+                    
+                    <div id="upload-queue" class="space-y-3">
+                        <div class="text-center py-8 text-gray-500">
+                            Очередь пуста
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Settings Tab -->
+        <div id="tab-settings" class="tab-content hidden">
+            <div class="grid lg:grid-cols-2 gap-6">
+                <div class="card p-6 space-y-4">
+                    <h2 class="text-2xl font-bold">⚙️ Настройки обработки</h2>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">OpenAI API Key</label>
+                            <input type="password" class="input" placeholder="sk-..."/>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Модель Whisper</label>
+                            <select class="input">
+                                <option>tiny</option>
+                                <option>base</option>
+                                <option selected>small</option>
+                                <option>medium</option>
+                                <option>large</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Язык субтитров</label>
+                            <select class="input">
+                                <option value="ru" selected>Русский</option>
+                                <option value="en">English</option>
+                                <option value="auto">Автоопределение</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card p-6 space-y-4">
+                    <h2 class="text-2xl font-bold">🎨 Настройки субтитров</h2>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">
+                                Размер шрифта: <span id="font-size-label">56</span>px
+                            </label>
+                            <input 
+                                type="range" 
+                                id="font-size" 
+                                min="30" 
+                                max="80" 
+                                value="56"
+                                class="w-full"
+                            />
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">Цвет подсветки</label>
+                            <input type="color" value="#FFD700" class="input h-12"/>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-2">
+                                Позиция субтитров: <span id="subtitle-position-label">82</span>%
+                            </label>
+                            <input 
+                                type="range" 
+                                id="subtitle-position" 
+                                min="70" 
+                                max="95" 
+                                value="82"
+                                class="w-full"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <div id="toast-message"></div>
+    </div>
+
+    <!-- YouTube Upload Modal (НОВОЕ!) -->
+    <div id="youtube-upload-modal" class="modal">
+        <div class="modal-content">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold">📤 Загрузить на YouTube</h2>
+                <button onclick="closeYouTubeModal()" class="text-gray-400 hover:text-white text-2xl">×</button>
+            </div>
+            
+            <div class="space-y-4">
+                <input type="hidden" id="upload-video-path" />
+                
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Аккаунт YouTube</label>
+                    <select id="upload-account" class="input">
+                        <option value="">Загрузка аккаунтов...</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Название видео (макс 100 символов)</label>
+                    <input type="text" id="upload-title" class="input" maxlength="100" placeholder="Крутой Short!"/>
+                </div>
+                
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Описание</label>
+                    <textarea id="upload-description" class="input" rows="4" placeholder="#Shorts автоматически добавится"></textarea>
+                </div>
+                
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Теги (через запятую)</label>
+                    <input type="text" id="upload-tags" class="input" placeholder="shorts, viral, тренды"/>
+                </div>
+                
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Приватность</label>
+                    <select id="upload-privacy" class="input">
+                        <option value="private">Приватное</option>
+                        <option value="unlisted">По ссылке</option>
+                        <option value="public">Публичное</option>
+                    </select>
+                </div>
+                
+                <div class="flex gap-3">
+                    <button onclick="closeYouTubeModal()" class="btn btn-outline flex-1">
+                        Отмена
+                    </button>
+                    <button onclick="uploadToYouTube()" class="btn btn-primary flex-1">
+                        📤 Загрузить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Account Modal (НОВОЕ!) -->
+    <div id="add-account-modal" class="modal">
+        <div class="modal-content">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold">➕ Добавить YouTube аккаунт</h2>
+                <button onclick="closeAddAccountModal()" class="text-gray-400 hover:text-white text-2xl">×</button>
+            </div>
+            
+            <div class="space-y-4">
+                <div class="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 text-sm">
+                    <div class="font-bold text-yellow-500 mb-2">📋 Инструкция:</div>
+                    <ol class="list-decimal ml-4 space-y-1 text-gray-300">
+                        <li>Создайте проект в Google Cloud Console</li>
+                        <li>Включите YouTube Data API v3</li>
+                        <li>Создайте OAuth 2.0 credentials</li>
+                        <li>Скачайте client_secret.json</li>
+                        <li>Загрузите файл ниже</li>
+                    </ol>
+                </div>
+                
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">client_secret.json</label>
+                    <input type="file" id="client-secret-file" accept=".json" class="hidden"/>
+                    <button onclick="document.getElementById('client-secret-file').click()" class="btn btn-outline w-full">
+                        📁 Выбрать файл
+                    </button>
+                    <div id="client-secret-name" class="mt-2 text-sm text-gray-400"></div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Метка (необязательно)</label>
+                    <input type="text" id="account-label" class="input" placeholder="Мой канал"/>
+                </div>
+                
+                <div class="flex gap-3">
+                    <button onclick="closeAddAccountModal()" class="btn btn-outline flex-1">
+                        Отмена
+                    </button>
+                    <button onclick="addYouTubeAccount()" class="btn btn-primary flex-1">
+                        ➕ Добавить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket connection
+        let ws = null;
+        let reconnectInterval = null;
+        
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${window.location.host}/ws`);
+            
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                showToast('Подключено к серверу', 'success');
+                if (reconnectInterval) {
+                    clearInterval(reconnectInterval);
+                    reconnectInterval = null;
+                }
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                if (!reconnectInterval) {
+                    reconnectInterval = setInterval(connectWebSocket, 5000);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        function handleWebSocketMessage(data) {
+            switch(data.type) {
+                case 'log':
+                    addLog(data.message, data.level);
+                    break;
+                case 'progress':
+                    updateProgress(data.current, data.total, data.message);
+                    break;
+                case 'job_created':
+                case 'job_updated':
+                    updateJobStatus(data.job);
+                    break;
+                case 'job_completed':
+                    handleJobCompleted(data.job);
+                    break;
+                case 'job_error':
+                    handleJobError(data.job);
+                    break;
+            }
+        }
+        
+        function updateJobStatus(job) {
+            const badge = document.getElementById('status-badge');
+            badge.textContent = job.status;
+            badge.className = 'badge ' + (
+                job.status === 'completed' ? 'badge-secondary' :
+                job.status === 'error' ? 'badge badge-primary' :
+                'badge badge-primary'
+            );
+            
+            if (job.progress !== undefined) {
+                updateProgress(job.progress, 100, job.status);
+            }
+        }
+        
+        function handleJobCompleted(job) {
+            addLog('✅ Обработка завершена!', 'success');
+            showToast('Видео готовы!', 'success');
+            
+            // Отображаем результаты
+            if (job.output_files) {
+                const container = document.getElementById('generated-clips');
+                container.innerHTML = '';
+                
+                job.output_files.forEach(filePath => {
+                    const fileName = filePath.split('/').pop();
+                    const videoUrl = `/out/${fileName}`;
+                    
+                    const clipCard = document.createElement('div');
+                    clipCard.className = 'bg-zinc-950 border border-zinc-800 rounded-lg p-3 space-y-2';
+                    clipCard.innerHTML = `
+                        <div class="text-sm text-zinc-300">${fileName}</div>
+                        <video src="${videoUrl}" controls class="w-full rounded-lg"></video>
+                        <div class="flex gap-2">
+                            <a href="${videoUrl}" download class="btn btn-outline text-xs flex-1">
+                                💾 Скачать
+                            </a>
+                            <button onclick="showYouTubeUploadModal('${videoUrl}', '${fileName}')" class="btn btn-primary text-xs flex-1">
+                                📤 YouTube
+                            </button>
+                        </div>
+                    `;
+                    container.appendChild(clipCard);
+                });
+                
+                document.getElementById('clips-count').textContent = job.output_files.length;
+            }
+            
+            // Обновляем библиотеку
+            refreshLibrary();
+        }
+        
+        function handleJobError(job) {
+            addLog('❌ Ошибка: ' + job.error, 'error');
+            showToast('Ошибка обработки', 'error');
+        }
+        
+        // ==================== YouTube Functions (НОВОЕ!) ====================
+        
+        async function showYouTubeUploadModal(videoPath, fileName) {
+            // Загружаем список аккаунтов
+            await loadYouTubeAccounts();
+            
+            // Устанавливаем значения
+            document.getElementById('upload-video-path').value = videoPath;
+            document.getElementById('upload-title').value = fileName.replace('.mp4', '').substring(0, 100);
+            
+            // Показываем модал
+            document.getElementById('youtube-upload-modal').classList.add('show');
+        }
+        
+        function closeYouTubeModal() {
+            document.getElementById('youtube-upload-modal').classList.remove('show');
+        }
+        
+        async function loadYouTubeAccounts() {
+            try {
+                const response = await fetch('/api/youtube/accounts');
+                const data = await response.json();
+                
+                const select = document.getElementById('upload-account');
+                select.innerHTML = '';
+                
+                if (data.success && data.accounts && data.accounts.length > 0) {
+                    data.accounts.forEach(acc => {
+                        const option = document.createElement('option');
+                        option.value = acc.id;
+                        option.textContent = `${acc.title} (${acc.subscribers || 0} подписчиков)`;
+                        select.appendChild(option);
+                    });
+                } else {
+                    select.innerHTML = '<option value="">Нет аккаунтов - добавьте на вкладке YouTube</option>';
+                }
+            } catch (error) {
+                console.error('Failed to load accounts:', error);
+                showToast('Ошибка загрузки аккаунтов', 'error');
+            }
+        }
+        
+        async function uploadToYouTube() {
+            const accountId = document.getElementById('upload-account').value;
+            const videoPath = document.getElementById('upload-video-path').value;
+            const title = document.getElementById('upload-title').value;
+            const description = document.getElementById('upload-description').value;
+            const tags = document.getElementById('upload-tags').value;
+            const privacy = document.getElementById('upload-privacy').value;
+            
+            if (!accountId) {
+                showToast('Выберите аккаунт YouTube', 'error');
+                return;
+            }
+            
+            if (!title) {
+                showToast('Введите название видео', 'error');
+                return;
+            }
+            
+            try {
+                closeYouTubeModal();
+                showToast('Начинаем загрузку на YouTube...', 'info');
+                addLog('📤 Загрузка на YouTube...', 'info');
+                
+                const formData = new FormData();
+                formData.append('account_id', accountId);
+                formData.append('video_path', videoPath);
+                formData.append('title', title);
+                formData.append('description', description);
+                formData.append('tags', tags);
+                formData.append('privacy', privacy);
+                
+                const response = await fetch('/api/youtube/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('✅ Видео загружено на YouTube!', 'success');
+                    addLog(`✅ YouTube: ${data.result.url}`, 'success');
+                    
+                    // Открыть видео в новой вкладке
+                    window.open(data.result.url, '_blank');
+                } else {
+                    showToast('Ошибка загрузки: ' + data.detail, 'error');
+                    addLog('❌ Ошибка загрузки на YouTube', 'error');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showToast('Ошибка: ' + error.message, 'error');
+                addLog('❌ ' + error.message, 'error');
+            }
+        }
+        
+        function showAddAccountModal() {
+            document.getElementById('add-account-modal').classList.add('show');
+        }
+        
+        function closeAddAccountModal() {
+            document.getElementById('add-account-modal').classList.remove('show');
+        }
+        
+        document.getElementById('client-secret-file').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('client-secret-name').textContent = file.name;
+            }
+        });
+        
+        async function addYouTubeAccount() {
+            const fileInput = document.getElementById('client-secret-file');
+            const file = fileInput.files[0];
+            const label = document.getElementById('account-label').value;
+            
+            if (!file) {
+                showToast('Выберите client_secret.json файл', 'error');
+                return;
+            }
+            
+            try {
+                // 1. Загружаем client_secret
+                const uploadForm = new FormData();
+                uploadForm.append('file', file);
+                
+                const uploadResponse = await fetch('/api/youtube/upload_client', {
+                    method: 'POST',
+                    body: uploadForm
+                });
+                
+                const uploadData = await uploadResponse.json();
+                
+                if (!uploadData.success) {
+                    throw new Error('Failed to upload client secret');
+                }
+                
+                closeAddAccountModal();
+                showToast('Запускаем OAuth авторизацию...', 'info');
+                addLog('🔐 OAuth авторизация...', 'info');
+                
+                // 2. Добавляем аккаунт (откроет браузер для OAuth)
+                const addForm = new FormData();
+                addForm.append('client_file', uploadData.filename);
+                addForm.append('label', label || '');
+                
+                const addResponse = await fetch('/api/youtube/add_account', {
+                    method: 'POST',
+                    body: addForm
+                });
+                
+                const addData = await addResponse.json();
+                
+                if (addData.success) {
+                    showToast('✅ Аккаунт добавлен: ' + addData.account.channel_title, 'success');
+                    addLog('✅ Аккаунт: ' + addData.account.channel_title, 'success');
+                    
+                    // Обновляем список аккаунтов
+                    loadYouTubeAccountsList();
+                } else {
+                    showToast('Ошибка добавления аккаунта', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Add account error:', error);
+                showToast('Ошибка: ' + error.message, 'error');
+                addLog('❌ ' + error.message, 'error');
+            }
+        }
+        
+        async function loadYouTubeAccountsList() {
+            try {
+                const response = await fetch('/api/youtube/accounts');
+                const data = await response.json();
+                
+                const container = document.getElementById('youtube-accounts-list');
+                container.innerHTML = '';
+                
+                if (data.success && data.accounts && data.accounts.length > 0) {
+                    data.accounts.forEach(acc => {
+                        const card = document.createElement('div');
+                        card.className = 'bg-zinc-950 border border-zinc-800 rounded-lg p-4 flex items-center justify-between';
+                        card.innerHTML = `
+                            <div>
+                                <div class="font-bold text-white">${acc.title}</div>
+                                <div class="text-sm text-gray-400">${acc.subscribers || 0} подписчиков</div>
+                            </div>
+                            <div class="badge badge-secondary">Активен</div>
+                        `;
+                        container.appendChild(card);
+                    });
+                } else {
+                    container.innerHTML = `
+                        <div class="text-center py-8 text-gray-500">
+                            <div class="text-4xl mb-2">📺</div>
+                            <p>Нет подключенных аккаунтов</p>
+                            <button onclick="showAddAccountModal()" class="btn btn-primary mt-4">
+                                ➕ Добавить первый аккаунт
+                            </button>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Failed to load accounts list:', error);
+            }
+        }
+        
+        // ==================== End YouTube Functions ====================
+        
+        // Tab switching
+        document.querySelectorAll('[data-tab]').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                
+                // Update tabs
+                document.querySelectorAll('[data-tab]').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Update content
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+                document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+                
+                // Load YouTube accounts if switching to YouTube tab
+                if (tabName === 'youtube') {
+                    loadYouTubeAccountsList();
+                }
+            });
+        });
+        
+        // File input
+        document.getElementById('video-file').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('file-name').textContent = file.name;
+            }
+        });
+        
+        // Range inputs
+        document.getElementById('clip-count').addEventListener('input', (e) => {
+            document.getElementById('clip-count-label').textContent = e.target.value;
+        });
+        
+        document.getElementById('font-size').addEventListener('input', (e) => {
+            document.getElementById('font-size-label').textContent = e.target.value;
+        });
+        
+        document.getElementById('subtitle-position').addEventListener('input', (e) => {
+            document.getElementById('subtitle-position-label').textContent = e.target.value;
+        });
+        
+        // Start processing
+        document.getElementById('start-btn').addEventListener('click', startProcessing);
+        
+        async function startProcessing() {
+            const youtubeUrl = document.getElementById('youtube-url').value;
+            const fileInput = document.getElementById('video-file');
+            const file = fileInput.files[0];
+            
+            if (!youtubeUrl && !file) {
+                showToast('Укажите YouTube URL или загрузите файл', 'error');
+                return;
+            }
+            
+            const settings = {
+                content_mode: document.getElementById('content-mode').value,
+                tracking_mode: document.getElementById('tracking-mode').value,
+                max_segments: parseInt(document.getElementById('clip-count').value),
+                font_size: parseInt(document.getElementById('font-size').value),
+                subtitle_position: parseInt(document.getElementById('subtitle-position').value) / 100,
+                output_width: 1080,
+                output_height: 1920
+            };
+            
+            addLog('Начинаем обработку...', 'info');
+            
+            try {
+                let response;
+                
+                if (youtubeUrl) {
+                    // Обработка URL
+                    const formData = new FormData();
+                    formData.append('url', youtubeUrl);
+                    formData.append('settings', JSON.stringify(settings));
+                    
+                    response = await fetch('/api/process/url', {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else {
+                    // Обработка файла
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('settings', JSON.stringify(settings));
+                    
+                    response = await fetch('/api/process/file', {
+                        method: 'POST',
+                        body: formData
+                    });
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast('Обработка запущена!', 'success');
+                    addLog(`Job ID: ${data.job_id}`, 'success');
+                } else {
+                    showToast('Ошибка: ' + (data.detail || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showToast('Ошибка: ' + error.message, 'error');
+                addLog('ERROR: ' + error.message, 'error');
+            }
+        }
+        
+        // Utility functions
+        function addLog(message, level = 'info') {
+            const console = document.getElementById('log-console');
+            const timestamp = new Date().toLocaleTimeString();
+            const color = {
+                'info': 'text-blue-400',
+                'success': 'text-green-400',
+                'warning': 'text-yellow-400',
+                'error': 'text-red-400'
+            }[level] || 'text-gray-400';
+            
+            const line = document.createElement('div');
+            line.className = color;
+            line.textContent = `[${timestamp}] ${message}`;
+            console.appendChild(line);
+            console.scrollTop = console.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('log-console').innerHTML = '';
+        }
+        
+        function updateProgress(current, total, message) {
+            const percent = Math.round((current / total) * 100);
+            document.getElementById('progress-fill').style.width = `${percent}%`;
+            document.getElementById('progress-percent').textContent = `${percent}%`;
+            document.getElementById('progress-label').textContent = message;
+            document.getElementById('current-step').textContent = message;
+        }
+        
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const messageEl = document.getElementById('toast-message');
+            
+            messageEl.textContent = message;
+            toast.classList.add('show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+        
+        async function refreshLibrary() {
+            try {
+                const response = await fetch('/api/library');
+                const data = await response.json();
+                
+                if (data.success && data.videos) {
+                    const grid = document.getElementById('library-grid');
+                    grid.innerHTML = '';
+                    
+                    data.videos.forEach(video => {
+                        const card = document.createElement('div');
+                        card.className = 'video-thumb';
+                        card.innerHTML = `
+                            <video src="${video.url}" class="w-full h-full object-cover"></video>
+                            <div class="video-overlay">
+                                <div class="text-sm font-semibold">${video.name}</div>
+                                <div class="text-xs text-gray-400">${formatFileSize(video.size)}</div>
+                            </div>
+                        `;
+                        
+                        card.addEventListener('click', () => {
+                            window.open(video.url, '_blank');
+                        });
+                        
+                        grid.appendChild(card);
+                    });
+                    
+                    showToast('Библиотека обновлена', 'success');
+                } else {
+                    grid.innerHTML = '<div class="col-span-full text-center py-12 text-gray-500">Нет видео</div>';
+                }
+            } catch (error) {
+                console.error('Error refreshing library:', error);
+                showToast('Ошибка загрузки библиотеки', 'error');
+            }
+        }
+        
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+        
+        // Initialize
+        connectWebSocket();
+        addLog('Система готова к работе', 'success');
+    </script>
+</body>
+</html>
