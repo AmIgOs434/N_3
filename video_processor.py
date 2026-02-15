@@ -5,6 +5,7 @@ AI Clip Creator - УНИВЕРСАЛЬНАЯ ВЕРСИЯ
 """
 
 import os
+import sys
 import json
 import subprocess
 import tempfile
@@ -135,15 +136,15 @@ class ProcessingConfig:
     subtitle_position: float = 0.82
     
     # Сегментация
-    min_segment_duration: float = 15.0
-    max_segment_duration: float = 60.0
+    min_segment_duration: float = 17.0  # ИСПРАВЛЕНО: минимум 17 секунд
+    max_segment_duration: float = 60.0  # ИСПРАВЛЕНО: максимум 60 секунд (1 минута)
     max_segments: int = 8
     
-    # AI анализ
+    # AI анализ (ХАРДКОД)
     use_ai_analysis: bool = True
-    openai_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = "sk-Yqz5qU3hmVLtKHDnmdtctNNvmcWxiKZK"  # ХАРДКОД
     openai_base_url: str = "https://api.proxyapi.ru/openai/v1"
-    openai_model: str = "gpt-5-nano"
+    openai_model: str = "gpt-5-nano"  # ХАРДКОД
     
     # Дополнительные анализы
     enable_emotion_detection: bool = False
@@ -206,7 +207,30 @@ def setup_temp_directories(temp_dir: str = None):
         if env['is_colab']:
             temp_dir = "/content/temp_ai_clip"
         else:
-            temp_dir = str(Path.home() / "temp_ai_clip")
+            # Для Windows пытаемся использовать диск с максимальным свободным местом
+            if sys.platform == 'win32':
+                import shutil
+                drives = []
+                for letter in 'CDEFGHIJKLMNOPQRSTUVWXYZ':
+                    drive = f"{letter}:\\"
+                    if os.path.exists(drive):
+                        try:
+                            stat = shutil.disk_usage(drive)
+                            free_gb = stat.free / (1024**3)
+                            drives.append((drive, free_gb))
+                        except:
+                            pass
+                
+                if drives:
+                    # Сортируем по свободному месту
+                    drives.sort(key=lambda x: x[1], reverse=True)
+                    best_drive = drives[0][0]
+                    temp_dir = os.path.join(best_drive, "temp_ai_clip")
+                    logger.info(f"Selected drive {best_drive} with {drives[0][1]:.1f}GB free space")
+                else:
+                    temp_dir = str(Path.home() / "temp_ai_clip")
+            else:
+                temp_dir = str(Path.home() / "temp_ai_clip")
     
     temp_path = Path(temp_dir)
     temp_path.mkdir(parents=True, exist_ok=True)
@@ -217,9 +241,16 @@ def setup_temp_directories(temp_dir: str = None):
     os.environ['TMPDIR'] = str(temp_path)
     os.environ['FFMPEG_TMPDIR'] = str(temp_path)
     
+    # Whisper cache
     whisper_cache = temp_path / "whisper_cache"
     whisper_cache.mkdir(exist_ok=True)
     os.environ['XDG_CACHE_HOME'] = str(whisper_cache)
+    
+    # Дополнительно для Windows - HuggingFace и Torch кеш
+    if sys.platform == 'win32':
+        os.environ['HF_HOME'] = str(temp_path / "huggingface")
+        os.environ['TORCH_HOME'] = str(temp_path / "torch")
+        os.environ['TRANSFORMERS_CACHE'] = str(temp_path / "transformers")
     
     logger.info(f"Temporary directories set to: {temp_path}")
     logger.info(f"Available space: {get_disk_space(temp_path):.2f} GB")
@@ -356,6 +387,26 @@ class VideoProcessor:
         if not Path(config.input_path).exists():
             raise FileNotFoundError(f"Input video not found: {config.input_path}")
         
+        # АВТОКОНВЕРТАЦИЯ AV1 → H.264 ДЛЯ СОВМЕСТИМОСТИ
+        logger.info("Checking video codec compatibility...")
+        test_cap = cv2.VideoCapture(str(config.input_path))
+        can_read = False
+        if test_cap.isOpened():
+            ret, _ = test_cap.read()
+            can_read = ret
+        test_cap.release()
+        
+        if not can_read:
+            logger.warning("🔄 Video codec incompatible (likely AV1/VP9), converting to H.264...")
+            converted_video = self._convert_to_h264(config.input_path)
+            if converted_video:
+                logger.info(f"✅ Video converted, using: {converted_video}")
+                config.input_path = str(converted_video)
+            else:
+                logger.warning("⚠️ Conversion failed, proceeding with original video (some features may not work)")
+        else:
+            logger.info("✅ Video codec compatible (H.264/H.265)")
+        
         self.video_info = VideoInfo(config.input_path)
         
         self._init_detectors()
@@ -373,6 +424,44 @@ class VideoProcessor:
         logger.info(f"Whisper Model: {config.whisper_model}")
         logger.info(f"Temp Dir: {self.temp_dir} (Free: {free_space:.2f}GB)")
         logger.info("=" * 60)
+    
+    def _convert_to_h264(self, input_path: str) -> Optional[Path]:
+        """Конвертация видео в H.264 для совместимости"""
+        try:
+            converted_file = self.temp_dir / f"converted_h264_{os.getpid()}.mp4"
+            
+            logger.info("Starting H.264 conversion (this may take a few minutes)...")
+            
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', str(input_path),
+                '-c:v', 'libx264',
+                '-preset', 'medium',  # Баланс скорости/качества
+                '-crf', '23',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
+                str(converted_file)
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                encoding='utf-8',
+                errors='replace'
+            )
+            
+            if result.returncode == 0 and converted_file.exists():
+                size_mb = converted_file.stat().st_size / (1024 * 1024)
+                logger.info(f"✅ Conversion complete: {size_mb:.1f}MB")
+                return converted_file
+            else:
+                logger.error(f"Conversion failed: {result.stderr}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Conversion error: {e}")
+            return None
     
     def _init_detectors(self):
         """Инициализация детекторов"""
@@ -501,8 +590,20 @@ class VideoProcessor:
             if progress_callback:
                 await progress_callback("Анализ визуала...", 55, 100)
             
-            visual_data = await self._analyze_visual_metrics(progress_callback)
-            logger.info(f"✓ Visual analysis complete")
+            # Проверяем что можем читать кадры (не AV1)
+            test_cap = cv2.VideoCapture(str(self.config.input_path))
+            can_read_frames = False
+            if test_cap.isOpened():
+                ret, _ = test_cap.read()
+                can_read_frames = ret
+            test_cap.release()
+            
+            if can_read_frames:
+                visual_data = await self._analyze_visual_metrics(progress_callback)
+                logger.info(f"✓ Visual analysis complete")
+            else:
+                logger.warning("Visual analysis skipped (incompatible codec)")
+                logger.info(f"✓ Visual analysis skipped")
         
         # 5. Генерация кандидатов (70-80%)
         if progress_callback:
@@ -643,50 +744,32 @@ class VideoProcessor:
             cap.release()
             return []
         
-        # Проверяем первый кадр - если не читается, переконвертируем видео
-        ret, test_frame = cap.read()
+        # Проверяем первые 3 кадра - если не читаются, пропускаем scene detection
+        test_failures = 0
+        for i in range(3):
+            ret, test_frame = cap.read()
+            if not ret:
+                test_failures += 1
+        
         cap.release()
         
-        video_path = self.config.input_path
-        
-        if not ret:
-            logger.warning("Cannot read frames (likely AV1 codec issue), converting to H.264...")
+        if test_failures >= 2:
+            logger.warning(f"Cannot read video frames (codec issue: likely AV1/VP9)")
+            logger.warning("SKIPPING scene detection - will use simple segmentation")
+            logger.info("✓ Scene detection skipped (incompatible codec): 0 scenes")
+            
             if progress_callback:
-                await progress_callback("Конвертация видео в GPU-совместимый формат...", 25, 100)
+                await progress_callback("Scene detection пропущен (несовместимый кодек)", 40, 100)
             
-            # Конвертируем в H.264
-            temp_video = self.temp_dir / f"converted_{os.getpid()}.mp4"
-            
-            convert_cmd = [
-                'ffmpeg', '-y',
-                '-i', str(self.config.input_path),
-                '-c:v', 'libx264',
-                '-preset', 'ultrafast',  # Быстрая конвертация
-                '-crf', '23',
-                '-c:a', 'copy',
-                str(temp_video)
-            ]
-            
-            try:
-                subprocess.run(
-                    convert_cmd,
-                    check=True,
-                    capture_output=True,
-                    encoding='utf-8',
-                    errors='replace'
-                )
-                logger.info(f"✓ Video converted to H.264: {temp_video}")
-                video_path = str(temp_video)
-            except Exception as e:
-                logger.error(f"Conversion failed: {e}")
-                # Продолжаем с оригинальным видео
-                video_path = self.config.input_path
+            return []
         
-        # Теперь открываем (возможно конвертированное) видео
-        cap = cv2.VideoCapture(str(video_path))
+        # Если кадры читаются - продолжаем обычную детекцию
+        logger.info("Video codec compatible, proceeding with scene detection")
+        
+        cap = cv2.VideoCapture(str(self.config.input_path))
         
         if not cap.isOpened():
-            logger.error("Failed to open video after conversion")
+            logger.error("Failed to open video after compatibility check")
             return []
         
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -788,14 +871,6 @@ class VideoProcessor:
         elapsed = time.time() - start_time
         logger.info(f"✓ Scene detection complete in {elapsed:.1f}s: {len(scene_changes)} scenes")
         
-        # Удаляем временный конвертированный файл если создавали
-        if video_path != self.config.input_path:
-            try:
-                Path(video_path).unlink()
-                logger.info("✓ Temporary converted video removed")
-            except:
-                pass
-        
         return scene_changes
     
     async def _analyze_audio_metrics(self, progress_callback=None) -> Dict[str, Any]:
@@ -804,6 +879,7 @@ class VideoProcessor:
         
         try:
             import librosa
+            import soundfile as sf
             
             temp_audio = self.temp_dir / f"audio_analysis_{os.getpid()}.wav"
             cmd = [
@@ -813,7 +889,11 @@ class VideoProcessor:
                 '-ar', '22050', '-ac', '1',
                 str(temp_audio)
             ]
-            subprocess.run(cmd, check=True, capture_output=True, encoding='utf-8', errors='replace')
+            
+            result = subprocess.run(cmd, check=True, capture_output=True, encoding='utf-8', errors='replace')
+            
+            if not temp_audio.exists():
+                raise RuntimeError("Audio extraction failed")
             
             y, sr = librosa.load(str(temp_audio), sr=22050)
             
@@ -823,18 +903,19 @@ class VideoProcessor:
             
             try:
                 tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+                tempo = float(tempo)
             except:
                 tempo = 120.0
             
             times = librosa.frames_to_time(range(len(rms)), sr=sr)
             
             audio_data = {
-                'times': times.tolist(),
-                'rms': rms.tolist(),
-                'zcr': zcr.tolist(),
-                'spectral_centroid': spectral_centroid.tolist(),
-                'tempo': float(tempo),
-                'duration': len(y) / sr
+                'times': [float(t) for t in times],  # Конвертируем в обычный float
+                'rms': [float(r) for r in rms],  # Конвертируем в обычный float
+                'zcr': [float(z) for z in zcr],
+                'spectral_centroid': [float(s) for s in spectral_centroid],
+                'tempo': tempo,
+                'duration': float(len(y) / sr)
             }
             
             if temp_audio.exists():
@@ -843,6 +924,9 @@ class VideoProcessor:
             logger.info(f"✓ Audio analysis: tempo={tempo:.1f} BPM")
             return audio_data
             
+        except ImportError as e:
+            logger.warning(f"librosa not installed: {e}")
+            return {'times': [], 'rms': [], 'zcr': [], 'spectral_centroid': [], 'tempo': 0, 'duration': 0}
         except Exception as e:
             logger.warning(f"Audio analysis failed: {e}")
             return {'times': [], 'rms': [], 'zcr': [], 'spectral_centroid': [], 'tempo': 0, 'duration': 0}
