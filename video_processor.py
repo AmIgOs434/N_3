@@ -143,7 +143,7 @@ class ProcessingConfig:
     use_ai_analysis: bool = True
     openai_api_key: Optional[str] = None
     openai_base_url: str = "https://api.proxyapi.ru/openai/v1"
-    openai_model: str = "gpt-4"
+    openai_model: str = "gpt-5-nano"
     
     # Дополнительные анализы
     enable_emotion_detection: bool = False
